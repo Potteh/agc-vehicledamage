@@ -664,6 +664,11 @@ end
 
 local function DetectFullRepair(vehicle, body, engine, tank)
     if not Config.EnableAutomaticRepairDetection then return false end
+
+    -- Developer-set damage is intentional. Do not let the automatic QBCore /fix
+    -- detector immediately restore it simply because native health is still 100%.
+    if GetGameTimer() < developerComponentHoldUntil then return false end
+
     if (GetGameTimer() - lastRepairAt) < Config.RepairDetectionCooldownMs then return false end
 
     local needsRepair = vehicleCondition < 99.9 or ComponentsNeedRepair()
@@ -970,7 +975,7 @@ if Config.EnableDeveloperDamageCommand then
             SetVehicleEngineHealth(vehicle, Config.NativeFullHealth)
             SetVehiclePetrolTankHealth(vehicle, Config.NativeFullHealth)
             components = DefaultComponents()
-            developerComponentHoldUntil = GetGameTimer() + 3000
+            developerComponentHoldUntil = 0
             Entity(vehicle).state:set(Config.ComponentStateKey, components, true)
             SyncComponents(vehicle, true)
             Notify('Developer damage state reset to 100%.')
@@ -983,7 +988,7 @@ if Config.EnableDeveloperDamageCommand then
             return
         end
 
-        developerComponentHoldUntil = GetGameTimer() + 3000
+        developerComponentHoldUntil = GetGameTimer() + 600000
 
         local function ForceComponentState()
             Entity(vehicle).state:set(Config.ComponentStateKey, components, true)

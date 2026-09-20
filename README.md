@@ -111,3 +111,24 @@ Test:
     /vehstatus
 
 Transmission should now report 55%.
+
+## Phase 5.2.1 developer-command fix
+
+The developer command itself was setting the requested component correctly. The
+automatic `/fix` detector then saw healthy native Body/Engine/Tank values and treated
+the intentionally damaged custom component as a repair candidate, immediately restoring
+it to 100%.
+
+Developer-set component damage now suppresses automatic repair detection while testing.
+The override lasts up to 10 minutes or until `/vehdamage reset`.
+
+Test:
+
+    /vehdamage transmission 55
+    /vehstatus
+
+Transmission should remain at 55% while you drive and test its symptoms.
+
+When finished:
+
+    /vehdamage reset
