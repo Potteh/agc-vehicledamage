@@ -17,6 +17,10 @@ local components = {}
 local lastComponentSync = 0
 local lastImpactVelocity = vector3(0.0, 0.0, 0.0)
 local lastComponentTick = 0
+local impactMemorySpeed = 0.0
+local impactMemoryVelocity = vector3(0.0, 0.0, 0.0)
+local impactMemoryAt = 0
+local repairHoldUntil = 0
 
 local function DefaultComponents()
     return {
@@ -93,6 +97,7 @@ local function RepairMechanical(vehicle, notifyPlayer)
     lastSyncedCondition = Config.DefaultCondition
     catastrophicFailure = false
     components = DefaultComponents()
+    repairHoldUntil = GetGameTimer() + Config.RepairHoldMs
     lastRepairAt = GetGameTimer()
 
     SetVehicleUndriveable(vehicle, false)
@@ -108,7 +113,7 @@ local function RepairMechanical(vehicle, notifyPlayer)
     previousSpeed = AGCDamage.GetSpeedMPH(vehicle)
 
     if notifyPlayer then Notify('Mechanical condition restored to 100%.') end
-    return true
+    return true    SyncComponents(vehicle, true)
 end
 
 local function ResetVehicleState(vehicle)
@@ -127,6 +132,9 @@ local function ResetVehicleState(vehicle)
     catastrophicFailure = false
     components = ReadComponents(vehicle)
     lastImpactVelocity = GetEntityVelocity(vehicle)
+    impactMemorySpeed = AGCDamage.GetSpeedMPH(vehicle)
+    impactMemoryVelocity = lastImpactVelocity
+    impactMemoryAt = GetGameTimer()
     lastComponentTick = GetGameTimer()
     initialized = true
 
@@ -206,7 +214,7 @@ local function ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
     end
 end
 
-local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLoss, engineLoss)
+local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLoss, engineLoss, capturedVelocity)
     local speedDelta = math.max(previousSpeed - currentSpeed, 0.0)
     local nativeLoss = bodyLoss + engineLoss
 
@@ -221,7 +229,7 @@ local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLo
     local impactSpeed = previousSpeed
 
     local forward = GetEntityForwardVector(vehicle)
-    local vel = lastImpactVelocity
+    local vel = capturedVelocity or lastImpactVelocity
     local forwardVelocity = (vel.x * forward.x) + (vel.y * forward.y) + (vel.z * forward.z)
     local movingForward = forwardVelocity > 0.5
 
@@ -495,10 +503,17 @@ CreateThread(function()
                     local bodyLoss = math.max(previousBodyHealth - currentBodyHealth, 0.0)
                     local engineLoss = math.max(previousEngineHealth - currentEngineHealth, 0.0)
 
-                    ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLoss, engineLoss)
+                    local componentImpactSpeed = previousSpeed
+                    local componentImpactVelocity = lastImpactVelocity
+                    if (GetGameTimer() - impactMemoryAt) <= Config.ImpactMemoryMs and impactMemorySpeed > componentImpactSpeed then
+                        componentImpactSpeed = impactMemorySpeed
+                        componentImpactVelocity = impactMemoryVelocity
+                    end
+
+                    ApplyComponentImpact(vehicle, componentImpactSpeed, currentSpeed, bodyLoss, engineLoss, componentImpactVelocity)
 
                     local damage = AGCDamage.CalculateImpact(
-                        vehicle, previousSpeed, currentSpeed,
+                        vehicle, componentImpactSpeed, currentSpeed,
                         previousBodyHealth, currentBodyHealth,
                         previousEngineHealth, currentEngineHealth
                     )
@@ -521,6 +536,19 @@ CreateThread(function()
                     SetVehicleEngineHealth(vehicle, Config.MinimumProtectedEngineHealth)
                     currentEngineHealth = Config.MinimumProtectedEngineHealth
                 end
+            end
+
+            -- Capture the speed/velocity immediately before a sharp deceleration.
+            -- GTA may not update body health until later frames.
+            local observedDrop = math.max(previousSpeed - currentSpeed, 0.0)
+            if previousSpeed >= Config.ImpactArmedMinimumSpeedMPH and observedDrop >= Config.ImpactArmedSpeedDropMPH then
+                impactMemorySpeed = previousSpeed
+                impactMemoryVelocity = lastImpactVelocity
+                impactMemoryAt = GetGameTimer()
+            elseif (GetGameTimer() - impactMemoryAt) > Config.ImpactMemoryMs then
+                impactMemorySpeed = currentSpeed
+                impactMemoryVelocity = GetEntityVelocity(vehicle)
+                impactMemoryAt = GetGameTimer()
             end
 
             previousSpeed = currentSpeed
@@ -579,8 +607,12 @@ end)
 RegisterNetEvent('agc-vehicledamage:client:componentsUpdated', function(netId, data)
     local vehicle = NetToVeh(netId)
     if vehicle == 0 or not DoesEntityExist(vehicle) or not initialized or vehicle ~= currentVehicle then return end
-    -- Driver remains authoritative; this event primarily initializes/acknowledges.
-    if type(data) == 'table' and next(components) == nil then components = ReadComponents(vehicle) end
+    if GetGameTimer() < repairHoldUntil then
+        -- Explicit repair is authoritative. Do not let an older state-bag/server echo
+        -- restore pre-repair component damage.
+        return
+    end
+    -- Current driver remains authoritative during live operation.
 end)
 
 RegisterNetEvent('agc-vehicledamage:client:repairVehicle', function(vehicle)

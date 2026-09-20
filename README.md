@@ -1,38 +1,43 @@
-# AGC Realistic Vehicle Damage - Phase 4.1
+# AGC Realistic Vehicle Damage - Phase 4.2
 
-Phase 4.1 fixes component damage not triggering during high-speed crashes.
+This build addresses both test failures found in Phase 4.1.
 
-## Cause
-Phase 4 used the speed difference observed on the exact update where GTA's body-health
-change appeared. GTA can spread a collision across multiple frames. By the time body
-damage was observed, the sampled speed delta could be small even after a 70 MPH crash.
-As a result, Body changed while Radiator, Transmission, Oil and Fuel System stayed 100%.
+## 1. Very high-speed crashes sometimes caused no component damage
+A 90 MPH head-on collision could reduce Body health but leave Radiator/Engine/
+Transmission untouched. GTA can apply its native body-health change several frames
+after the largest deceleration.
 
-## Fix
-Component severity now uses the vehicle's recorded PRE-IMPACT speed when GTA confirms
-that physical body/engine damage occurred.
+Phase 4.2 keeps a short pre-impact memory of:
+- vehicle speed
+- vehicle velocity/direction
+- time of the sharp deceleration
 
-The collision model still requires native physical damage, so merely braking hard from
-70 MPH should not damage components.
+When physical damage appears shortly afterward, the component system uses the cached
+pre-impact data. A 90 MPH impact therefore cannot be accidentally evaluated as a much
+slower collision merely because the body-health update arrived late.
 
-## Expected behavior
-- ~20 MPH light frontal hit: little/no drivetrain damage; radiator may take a very small hit.
-- ~50 MPH frontal hit: radiator should begin showing noticeable damage; transmission may
-  take a small amount depending on the collision.
-- ~70 MPH head-on hit: radiator should take substantial damage, engine should take some
-  additional frontal-impact damage, and transmission may also deteriorate.
-- Oil/fuel systems remain biased toward more severe impacts.
-- Temperature normally settles around 90 C. A damaged radiator should make temperature
-  climb above normal while the engine continues running.
+## 2. /fix sometimes left Radiator damaged
+Repair now explicitly resets and immediately synchronizes the Phase 4 component table.
+A short repair-authority window also prevents delayed/stale component state from
+re-applying old damage immediately after `/fix`.
 
-## Debugging
-Run `/vehdamagedebug` to enable console logging. Component collisions now print:
-pre-impact MPH, sampled speed delta, body loss, engine loss, and whether the impact was
-classified as front-biased.
+## Testing
+Use `/fix` before every isolated test and verify every component reads 100%.
+
+Suggested tests:
+- 30-35 MPH frontal
+- 50-60 MPH frontal
+- 70-90 MPH head-on
+
+Then continue driving after a damaged radiator to test overheating.
+
+For diagnostics:
+    /vehdamagedebug
+
+The F8 `Component impact:` line should now show the cached pre-impact speed for crashes
+where GTA delays its health update.
 
 ## Install
 Replace the resource folder and run:
 
     restart agc-vehicledamage
-
-Use `/fix` before each controlled crash test.

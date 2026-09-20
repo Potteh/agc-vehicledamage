@@ -144,3 +144,12 @@ Config.TyreDamageMinimumMPH = 50.0
 Config.TyreBurstChanceAtMinimum = 4
 Config.TyreBurstChanceAtExtreme = 28
 Config.TyreExtremeImpactMPH = 85.0
+
+
+-- Phase 4.2 impact capture
+-- Cache the highest speed immediately before damage so severe impacts are not missed
+-- when GTA applies native body damage a few frames later.
+Config.ImpactMemoryMs = 1400
+Config.ImpactArmedSpeedDropMPH = 6.0
+Config.ImpactArmedMinimumSpeedMPH = 15.0
+Config.RepairHoldMs = 2500
