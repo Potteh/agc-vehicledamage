@@ -1,48 +1,32 @@
-# AGC Realistic Vehicle Damage - Phase 4.2
+# AGC Realistic Vehicle Damage - Phase 4.3
 
-This build addresses both test failures found in Phase 4.1.
+Phase 4.3 fixes the two issues confirmed by the Phase 4.2.1 road tests.
 
-## 1. Very high-speed crashes sometimes caused no component damage
-A 90 MPH head-on collision could reduce Body health but leave Radiator/Engine/
-Transmission untouched. GTA can apply its native body-health change several frames
-after the largest deceleration.
+## `/fix` and radiator-only damage
+Automatic repair detection previously required Mechanical to be below 100%. That meant
+a vehicle with Mechanical 100% and Radiator 93% could be ignored by the repair detector.
 
-Phase 4.2 keeps a short pre-impact memory of:
-- vehicle speed
-- vehicle velocity/direction
-- time of the sharp deceleration
+The repair detector now considers Radiator, Transmission, Oil, and Fuel System damage.
+A QBCore `/fix` can therefore reset custom components even when Mechanical never dropped.
 
-When physical damage appears shortly afterward, the component system uses the cached
-pre-impact data. A 90 MPH impact therefore cannot be accidentally evaluated as a much
-slower collision merely because the body-health update arrived late.
+## High-speed impacts
+GTA can clear its collision flag before the native Body-health reduction is visible.
+The previous code therefore sometimes saw a 55-90 MPH crash only as a Body change and
+never ran component damage.
 
-## 2. /fix sometimes left Radiator damaged
-Repair now explicitly resets and immediately synchronizes the Phase 4 component table.
-A short repair-authority window also prevents delayed/stale component state from
-re-applying old damage immediately after `/fix`.
+Phase 4.3 accepts a delayed native health reduction when it occurs inside the cached
+pre-impact window. The cached impact is then consumed so the same collision is not
+double-counted.
 
-## Testing
-Use `/fix` before every isolated test and verify every component reads 100%.
+## Test
+Restart the resource, `/fix`, and verify all custom components show 100%.
 
-Suggested tests:
-- 30-35 MPH frontal
-- 50-60 MPH frontal
-- 70-90 MPH head-on
+Then test:
+- ~40 MPH frontal
+- `/fix` and verify Radiator returns to 100%
+- ~55 MPH frontal
+- `/fix`
+- ~80-90 MPH head-on
 
-Then continue driving after a damaged radiator to test overheating.
-
-For diagnostics:
-    /vehdamagedebug
-
-The F8 `Component impact:` line should now show the cached pre-impact speed for crashes
-where GTA delays its health update.
-
-## Install
-Replace the resource folder and run:
-
-    restart agc-vehicledamage
-
-## Phase 4.2.1 hotfix
-Fixes the Lua parse error in `RepairMechanical()` caused by `SyncComponents()` being
-accidentally placed after `return true` on the same line. Component synchronization
-now runs before the function returns.
+Use `/vehdamagedebug` if needed; `Component impact:` should appear for the physical
+impact even when GTA reports Body damage a few frames late.

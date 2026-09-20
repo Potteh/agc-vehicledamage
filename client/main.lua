@@ -445,10 +445,20 @@ local function HandleRollover(vehicle)
     end
 end
 
+local function ComponentsNeedRepair()
+    return
+        (components.radiator or 100.0) < 99.9 or
+        (components.transmission or 100.0) < 99.9 or
+        (components.oil or 100.0) < 99.9 or
+        (components.fuelSystem or 100.0) < 99.9
+end
+
 local function DetectFullRepair(vehicle, body, engine, tank)
     if not Config.EnableAutomaticRepairDetection then return false end
-    if vehicleCondition >= 99.9 then return false end
     if (GetGameTimer() - lastRepairAt) < Config.RepairDetectionCooldownMs then return false end
+
+    local needsRepair = vehicleCondition < 99.9 or ComponentsNeedRepair()
+    if not needsRepair then return false end
 
     local healthy =
         body >= Config.RepairDetectionBodyHealth and
@@ -457,9 +467,15 @@ local function DetectFullRepair(vehicle, body, engine, tank)
 
     if not healthy then return false end
 
-    if (body - previousBodyHealth) >= 25.0
-        or (engine - previousEngineHealth) >= 25.0
-        or (tank - previousTankHealth) >= 25.0 then
+    -- QBCore /fix can repair native health even when Mechanical itself is still 100%.
+    -- A native-health jump OR fully healthy native values while custom components are
+    -- damaged is enough to treat this as a repair.
+    local nativeJump =
+        (body - previousBodyHealth) >= 10.0 or
+        (engine - previousEngineHealth) >= 10.0 or
+        (tank - previousTankHealth) >= 10.0
+
+    if nativeJump or ComponentsNeedRepair() then
         RepairMechanical(vehicle, false)
         return true
     end
@@ -499,11 +515,16 @@ CreateThread(function()
             if not repaired then
                 ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
 
-                if HasEntityCollidedWithAnything(vehicle)
-                    and (gameTimer - lastCollision) >= Config.CollisionCooldown then
+                local bodyLoss = math.max(previousBodyHealth - currentBodyHealth, 0.0)
+                local engineLoss = math.max(previousEngineHealth - currentEngineHealth, 0.0)
+                local nativeDamageNow = (bodyLoss + engineLoss) >= Config.MinimumNativeDamageForImpact
+                local recentImpactMemory = (gameTimer - impactMemoryAt) <= Config.ImpactMemoryMs
 
-                    local bodyLoss = math.max(previousBodyHealth - currentBodyHealth, 0.0)
-                    local engineLoss = math.max(previousEngineHealth - currentEngineHealth, 0.0)
+                -- GTA may clear HasEntityCollidedWithAnything before its native health
+                -- reduction appears. Accept the delayed health reduction when it occurs
+                -- inside the cached impact window.
+                if (HasEntityCollidedWithAnything(vehicle) or (recentImpactMemory and nativeDamageNow))
+                    and (gameTimer - lastCollision) >= Config.CollisionCooldown then
 
                     local componentImpactSpeed = previousSpeed
                     local componentImpactVelocity = lastImpactVelocity
@@ -522,7 +543,13 @@ CreateThread(function()
 
                     if damage > 0.0 then
                         ApplyMechanicalDamage(damage)
+                    end
+
+                    if nativeDamageNow then
                         lastCollision = gameTimer
+                        -- Consume this cached impact so the same crash cannot be
+                        -- reprocessed on another delayed health update.
+                        impactMemoryAt = 0
                     end
                 end
 
