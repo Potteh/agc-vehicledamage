@@ -21,6 +21,9 @@ local impactMemorySpeed = 0.0
 local impactMemoryVelocity = vector3(0.0, 0.0, 0.0)
 local impactMemoryAt = 0
 local repairHoldUntil = 0
+local lastTemperatureWarning = 0
+local activeOverheatFx = nil
+local activeOverheatFxVehicle = 0
 
 local function DefaultComponents()
     return {
@@ -320,6 +323,54 @@ local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLo
     SyncComponents(vehicle, true)
 end
 
+local function StopOverheatFx()
+    if activeOverheatFx then
+        StopParticleFxLooped(activeOverheatFx, false)
+        activeOverheatFx = nil
+    end
+    activeOverheatFxVehicle = 0
+end
+
+local function StartOverheatFx(vehicle, heavy)
+    if not Config.EnableOverheatEffects then return end
+    if activeOverheatFx and activeOverheatFxVehicle == vehicle then return end
+    StopOverheatFx()
+
+    RequestNamedPtfxAsset('core')
+    local timeout = GetGameTimer() + 1500
+    while not HasNamedPtfxAssetLoaded('core') and GetGameTimer() < timeout do Wait(0) end
+    if not HasNamedPtfxAssetLoaded('core') then return end
+
+    UseParticleFxAssetNextCall('core')
+    -- Built-in engine-area smoke/steam approximation. Offset is intentionally generic
+    -- so it works across vehicle models without requiring model-specific bones.
+    local fxName = heavy and 'exp_grd_bzgas_smoke' or 'ent_amb_smoke_foundry'
+    activeOverheatFx = StartParticleFxLoopedOnEntity(
+        fxName, vehicle,
+        0.0, 1.1, 0.45,
+        0.0, 0.0, 0.0,
+        heavy and 0.35 or 0.18,
+        false, false, false
+    )
+    activeOverheatFxVehicle = vehicle
+end
+
+local function TemperatureWarning(temp)
+    local now = GetGameTimer()
+    if (now - lastTemperatureWarning) < Config.TemperatureWarningCooldownMs then return end
+
+    if temp >= Config.CriticalOverheatTemperature then
+        Notify(('CRITICAL ENGINE TEMPERATURE: %.0f C - STOP VEHICLE'):format(temp))
+    elseif temp >= Config.SevereOverheatTemperature then
+        Notify(('ENGINE OVERHEATING: %.0f C'):format(temp))
+    elseif temp >= Config.OverheatWarningTemperature then
+        Notify(('ENGINE TEMPERATURE HIGH: %.0f C'):format(temp))
+    else
+        return
+    end
+    lastTemperatureWarning = now
+end
+
 local function HandleComponents(vehicle)
     local now = GetGameTimer()
     if lastComponentTick == 0 then lastComponentTick = now return end
@@ -346,13 +397,35 @@ local function HandleComponents(vehicle)
     end
     components.temperature = math.min(components.temperature, Config.MaximumTemperature)
 
-    if components.temperature >= Config.OverheatStartTemperature then
+    -- Progressive overheating: warning -> mild damage -> severe damage -> critical.
+    local temp = components.temperature
+    if temp >= Config.OverheatWarningTemperature then
+        TemperatureWarning(temp)
+
+        local engineRate = Config.MildOverheatEngineDamagePerSecond
+        local mechanicalRate = Config.MildOverheatMechanicalDamagePerSecond
+
+        if temp >= Config.CriticalOverheatTemperature then
+            engineRate = Config.CriticalOverheatEngineDamagePerSecond
+            mechanicalRate = Config.CriticalOverheatMechanicalDamagePerSecond
+        elseif temp >= Config.SevereOverheatTemperature then
+            engineRate = Config.SevereOverheatEngineDamagePerSecond
+            mechanicalRate = Config.SevereOverheatMechanicalDamagePerSecond
+        end
+
         local native = GetVehicleEngineHealth(vehicle)
-        local rate = components.temperature >= Config.CriticalTemperature
-            and Config.CriticalOverheatEngineDamagePerSecond
-            or Config.OverheatEngineDamagePerSecond
-        SetVehicleEngineHealth(vehicle, math.max(native - rate * 10.0 * dt, 0.0))
-        ApplyMechanicalDamage(Config.OverheatMechanicalDamagePerSecond * dt)
+        SetVehicleEngineHealth(vehicle, math.max(native - engineRate * 10.0 * dt, 0.0))
+        ApplyMechanicalDamage(mechanicalRate * dt)
+    end
+
+    if Config.EnableOverheatEffects then
+        if temp >= Config.HeavySmokeTemperature then
+            StartOverheatFx(vehicle, true)
+        elseif temp >= Config.SteamStartTemperature then
+            StartOverheatFx(vehicle, false)
+        elseif activeOverheatFxVehicle == vehicle then
+            StopOverheatFx()
+        end
     end
 
     -- Oil leak and starvation.
@@ -373,6 +446,19 @@ local function HandleComponents(vehicle)
 
     SyncComponents(vehicle, false)
 end
+
+CreateThread(function()
+    while true do
+        Wait(1000)
+        if activeOverheatFx then
+            if not initialized or currentVehicle == 0 or not DoesEntityExist(currentVehicle)
+                or activeOverheatFxVehicle ~= currentVehicle
+                or (components.temperature or 0.0) < Config.SteamStartTemperature then
+                StopOverheatFx()
+            end
+        end
+    end
+end)
 
 local function GetTransmissionTorque()
     if components.transmission >= Config.TransmissionPowerLossStart then return 1.0 end

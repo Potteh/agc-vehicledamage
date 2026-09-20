@@ -153,3 +153,25 @@ Config.ImpactMemoryMs = 1400
 Config.ImpactArmedSpeedDropMPH = 6.0
 Config.ImpactArmedMinimumSpeedMPH = 15.0
 Config.RepairHoldMs = 2500
+
+
+-- Phase 4.4 progressive overheating
+Config.OverheatWarningTemperature = 105.0
+Config.SevereOverheatTemperature = 115.0
+Config.CriticalOverheatTemperature = 125.0
+
+Config.MildOverheatEngineDamagePerSecond = 0.12
+Config.MildOverheatMechanicalDamagePerSecond = 0.025
+
+Config.SevereOverheatEngineDamagePerSecond = 0.65
+Config.SevereOverheatMechanicalDamagePerSecond = 0.10
+
+Config.CriticalOverheatEngineDamagePerSecond = 2.25
+Config.CriticalOverheatMechanicalDamagePerSecond = 0.35
+
+Config.TemperatureWarningCooldownMs = 12000
+
+-- Visual effects
+Config.EnableOverheatEffects = true
+Config.SteamStartTemperature = 112.0
+Config.HeavySmokeTemperature = 125.0

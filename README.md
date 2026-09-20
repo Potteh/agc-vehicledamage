@@ -1,32 +1,37 @@
-# AGC Realistic Vehicle Damage - Phase 4.3
+# AGC Realistic Vehicle Damage - Phase 4.4
 
-Phase 4.3 fixes the two issues confirmed by the Phase 4.2.1 road tests.
+Phase 4.4 keeps the successful Phase 4.3 crash/component model and balances overheating.
 
-## `/fix` and radiator-only damage
-Automatic repair detection previously required Mechanical to be below 100%. That meant
-a vehicle with Mechanical 100% and Radiator 93% could be ignored by the repair detector.
+## Progressive overheating
+The previous system had a large damage jump at critical temperature. Phase 4.4 uses
+three progressive stages:
 
-The repair detector now considers Radiator, Transmission, Oil, and Fuel System damage.
-A QBCore `/fix` can therefore reset custom components even when Mechanical never dropped.
+- 105-114 C: high-temperature warning and slow deterioration
+- 115-124 C: severe overheating and faster deterioration
+- 125 C+: critical overheating and rapid deterioration
 
-## High-speed impacts
-GTA can clear its collision flag before the native Body-health reduction is visible.
-The previous code therefore sometimes saw a 55-90 MPH crash only as a Body change and
-never ran component damage.
+The driver now has substantially more time to notice the problem, stop the vehicle and
+shut the engine down before catastrophic failure.
 
-Phase 4.3 accepts a delayed native health reduction when it occurs inside the cached
-pre-impact window. The cached impact is then consumed so the same collision is not
-double-counted.
+## Warnings
+Notifications are rate-limited and escalate through:
+- ENGINE TEMPERATURE HIGH
+- ENGINE OVERHEATING
+- CRITICAL ENGINE TEMPERATURE - STOP VEHICLE
+
+## Effects
+Steam/smoke effects begin as temperature becomes severe and intensify at critical
+temperature. Engine 0% still results in the existing disabled/catastrophic behavior.
+
+## Crash damage
+Phase 4.3 crash/component tuning is intentionally unchanged.
 
 ## Test
-Restart the resource, `/fix`, and verify all custom components show 100%.
+Damage the radiator, continue driving under load, and periodically use `/vehstatus`.
+Watch the progression through 105 C, 115 C and 125 C.
 
-Then test:
-- ~40 MPH frontal
-- `/fix` and verify Radiator returns to 100%
-- ~55 MPH frontal
-- `/fix`
-- ~80-90 MPH head-on
+Also test pulling over and shutting the engine off during an overheat event. Temperature
+should fall and continued overheat damage should stop as the vehicle cools.
 
-Use `/vehdamagedebug` if needed; `Component impact:` should appear for the physical
-impact even when GTA reports Body damage a few frames late.
+Install:
+    restart agc-vehicledamage
