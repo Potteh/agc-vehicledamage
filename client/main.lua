@@ -112,8 +112,10 @@ local function RepairMechanical(vehicle, notifyPlayer)
     previousTankHealth = GetVehiclePetrolTankHealth(vehicle)
     previousSpeed = AGCDamage.GetSpeedMPH(vehicle)
 
+    SyncComponents(vehicle, true)
+
     if notifyPlayer then Notify('Mechanical condition restored to 100%.') end
-    return true    SyncComponents(vehicle, true)
+    return true
 end
 
 local function ResetVehicleState(vehicle)

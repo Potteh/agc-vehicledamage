@@ -41,3 +41,8 @@ where GTA delays its health update.
 Replace the resource folder and run:
 
     restart agc-vehicledamage
+
+## Phase 4.2.1 hotfix
+Fixes the Lua parse error in `RepairMechanical()` caused by `SyncComponents()` being
+accidentally placed after `return true` on the same line. Component synchronization
+now runs before the function returns.
