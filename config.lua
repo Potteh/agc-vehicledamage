@@ -221,3 +221,14 @@ Config.TransmissionCriticalTorque = 0.16       -- <= 12%
 Config.TransmissionCriticalMaxSpeedMph = 28.0
 Config.TransmissionFailurePercent = 5.0
 Config.TransmissionFailureMaxSpeedMph = 12.0
+
+-- Phase 5.4 progressive oil starvation
+Config.OilStarvationStartPercent = 20.0
+Config.OilStarvationSeverePercent = 12.0
+Config.OilStarvationCriticalPercent = 6.0
+Config.OilStarvationMildEngineDamagePerSecond = 0.10
+Config.OilStarvationMildMechanicalDamagePerSecond = 0.015
+Config.OilStarvationSevereEngineDamagePerSecond = 0.55
+Config.OilStarvationSevereMechanicalDamagePerSecond = 0.08
+Config.OilStarvationCriticalEngineDamagePerSecond = 2.25
+Config.OilStarvationCriticalMechanicalDamagePerSecond = 0.30

@@ -150,3 +150,12 @@ Use:
     /vehdamage transmission 4
 
 Run `/vehdamage reset` afterward.
+
+## Phase 5.4
+Retunes oil starvation after live testing.
+- 20-12% oil: slow wear
+- 12-6% oil: substantial starvation damage
+- <=6% oil: rapid engine failure
+
+Oil leakage itself remains unchanged.
+Recommended: reset, set oil to 19%, and check /vehstatus near 15%, 10%, and 5%.

@@ -511,10 +511,21 @@ local function HandleComponents(vehicle)
     if components.oil <= Config.OilLeakStart and running then
         components.oil = Clamp100(components.oil - Config.OilLossPerSecond * dt)
     end
-    if components.oil <= Config.OilCritical and running then
+    if components.oil <= Config.OilStarvationStartPercent and running then
+        local engineDamage = Config.OilStarvationMildEngineDamagePerSecond
+        local mechanicalDamage = Config.OilStarvationMildMechanicalDamagePerSecond
+
+        if components.oil <= Config.OilStarvationCriticalPercent then
+            engineDamage = Config.OilStarvationCriticalEngineDamagePerSecond
+            mechanicalDamage = Config.OilStarvationCriticalMechanicalDamagePerSecond
+        elseif components.oil <= Config.OilStarvationSeverePercent then
+            engineDamage = Config.OilStarvationSevereEngineDamagePerSecond
+            mechanicalDamage = Config.OilStarvationSevereMechanicalDamagePerSecond
+        end
+
         local native = GetVehicleEngineHealth(vehicle)
-        SetVehicleEngineHealth(vehicle, math.max(native - Config.OilEngineDamagePerSecond * 10.0 * dt, 0.0))
-        ApplyMechanicalDamage(Config.OilMechanicalDamagePerSecond * dt)
+        SetVehicleEngineHealth(vehicle, math.max(native - engineDamage * 10.0 * dt, 0.0))
+        ApplyMechanicalDamage(mechanicalDamage * dt)
     end
 
     -- Fuel leak. Severity increases as the fuel system deteriorates.
