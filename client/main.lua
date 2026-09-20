@@ -13,6 +13,47 @@ local degradationTimer = 0
 local initialized = false
 local lastRepairAt = 0
 local catastrophicFailure = false
+local components = {}
+local lastComponentSync = 0
+local lastImpactVelocity = vector3(0.0, 0.0, 0.0)
+local lastComponentTick = 0
+
+local function DefaultComponents()
+    return {
+        radiator = Config.DefaultComponents.radiator,
+        transmission = Config.DefaultComponents.transmission,
+        oil = Config.DefaultComponents.oil,
+        fuelSystem = Config.DefaultComponents.fuelSystem,
+        temperature = Config.DefaultComponents.temperature
+    }
+end
+
+local function Clamp100(v)
+    return math.max(0.0, math.min(tonumber(v) or 100.0, 100.0))
+end
+
+local function ReadComponents(vehicle)
+    local data = Entity(vehicle).state[Config.ComponentStateKey]
+    if type(data) ~= 'table' then return DefaultComponents() end
+    return {
+        radiator = Clamp100(data.radiator),
+        transmission = Clamp100(data.transmission),
+        oil = Clamp100(data.oil),
+        fuelSystem = Clamp100(data.fuelSystem),
+        temperature = math.max(0.0, math.min(tonumber(data.temperature) or 35.0, Config.MaximumTemperature))
+    }
+end
+
+local function SyncComponents(vehicle, force)
+    if vehicle == 0 or not DoesEntityExist(vehicle) then return end
+    local now = GetGameTimer()
+    if not force and (now - lastComponentSync) < Config.ComponentSyncInterval then return end
+    local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    if netId == 0 then return end
+    TriggerServerEvent('agc-vehicledamage:server:setComponents', netId, components)
+    lastComponentSync = now
+end
+
 
 local function Debug(message)
     if Config.Debug then print(('[agc-vehicledamage] %s'):format(message)) end
@@ -51,6 +92,7 @@ local function RepairMechanical(vehicle, notifyPlayer)
     vehicleCondition = Config.DefaultCondition
     lastSyncedCondition = Config.DefaultCondition
     catastrophicFailure = false
+    components = DefaultComponents()
     lastRepairAt = GetGameTimer()
 
     SetVehicleUndriveable(vehicle, false)
@@ -83,6 +125,9 @@ local function ResetVehicleState(vehicle)
     degradationTimer = 0
     lastCollision = 0
     catastrophicFailure = false
+    components = ReadComponents(vehicle)
+    lastImpactVelocity = GetEntityVelocity(vehicle)
+    lastComponentTick = GetGameTimer()
     initialized = true
 
     if Entity(vehicle).state[Config.StateBagKey] == nil then
@@ -107,6 +152,8 @@ local function LeaveVehicle()
     degradationTimer = 0
     lastCollision = 0
     catastrophicFailure = false
+    components = DefaultComponents()
+    lastImpactVelocity = vector3(0.0, 0.0, 0.0)
 end
 
 local function ApplyMechanicalDamage(amount)
@@ -157,6 +204,134 @@ local function ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
             old, vehicleCondition, enginePercent, bodyPercent
         ))
     end
+end
+
+local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLoss, engineLoss)
+    local speedDelta = math.max(previousSpeed - currentSpeed, 0.0)
+    if speedDelta < 5.0 or (bodyLoss + engineLoss) < Config.MinimumNativeDamageForImpact then return end
+
+    -- Estimate frontal impact from the vehicle's prior velocity direction relative
+    -- to its current forward vector. This is an approximation but differentiates
+    -- head-on/front impacts from many side/rear events without model-specific bones.
+    local forward = GetEntityForwardVector(vehicle)
+    local vel = lastImpactVelocity
+    local forwardVelocity = (vel.x * forward.x) + (vel.y * forward.y) + (vel.z * forward.z)
+    local forwardMPH = math.abs(forwardVelocity) * 2.236936
+    local likelyFrontImpact = forwardVelocity > 0.0 and speedDelta >= Config.FrontalImpactMinimumMPH
+
+    if likelyFrontImpact then
+        local radiatorDamage = math.min(
+            (speedDelta - Config.FrontalImpactMinimumMPH) * Config.FrontalImpactRadiatorFactor +
+            bodyLoss * 0.025,
+            Config.MaxRadiatorDamagePerImpact
+        )
+        components.radiator = Clamp100(components.radiator - math.max(radiatorDamage, 0.0))
+
+        local extraEngine = math.min(
+            math.max(speedDelta - 35.0, 0.0) * Config.FrontalImpactEngineFactor +
+            math.max(bodyLoss - 80.0, 0.0) * 0.02,
+            Config.MaxExtraEngineDamagePerImpact
+        )
+        if extraEngine > 0.0 then
+            local nativeEngine = GetVehicleEngineHealth(vehicle)
+            SetVehicleEngineHealth(vehicle, math.max(nativeEngine - (extraEngine * 10.0), 0.0))
+        end
+    end
+
+    if speedDelta >= Config.TransmissionImpactStartMPH then
+        local d = math.min((speedDelta - Config.TransmissionImpactStartMPH) * Config.TransmissionImpactFactor,
+            Config.MaxTransmissionDamagePerImpact)
+        components.transmission = Clamp100(components.transmission - d)
+    end
+
+    if speedDelta >= Config.OilImpactStartMPH then
+        local d = math.min((speedDelta - Config.OilImpactStartMPH) * Config.OilImpactFactor,
+            Config.MaxOilDamagePerImpact)
+        components.oil = Clamp100(components.oil - d)
+    end
+
+    if speedDelta >= Config.FuelImpactStartMPH then
+        local d = math.min((speedDelta - Config.FuelImpactStartMPH) * Config.FuelImpactFactor,
+            Config.MaxFuelSystemDamagePerImpact)
+        components.fuelSystem = Clamp100(components.fuelSystem - d)
+    end
+
+    if Config.EnableImpactTyreDamage and speedDelta >= Config.TyreDamageMinimumMPH then
+        local span = math.max(Config.TyreExtremeImpactMPH - Config.TyreDamageMinimumMPH, 1.0)
+        local pct = math.min(math.max((speedDelta - Config.TyreDamageMinimumMPH) / span, 0.0), 1.0)
+        local chance = math.floor(Config.TyreBurstChanceAtMinimum +
+            ((Config.TyreBurstChanceAtExtreme - Config.TyreBurstChanceAtMinimum) * pct))
+        if math.random(1,100) <= chance then
+            local tyres = {0,1,4,5}
+            local tyre = tyres[math.random(1,#tyres)]
+            if not IsVehicleTyreBurst(vehicle, tyre, false) then
+                SetVehicleTyreBurst(vehicle, tyre, true, 1000.0)
+            end
+        end
+    end
+
+    SyncComponents(vehicle, true)
+end
+
+local function HandleComponents(vehicle)
+    local now = GetGameTimer()
+    if lastComponentTick == 0 then lastComponentTick = now return end
+    local dt = math.min((now - lastComponentTick) / 1000.0, 1.0)
+    lastComponentTick = now
+    if dt <= 0.0 then return end
+
+    local running = GetIsVehicleEngineRunning(vehicle)
+    local speed = AGCDamage.GetSpeedMPH(vehicle)
+
+    -- Temperature: warms toward operating temp; damaged radiator adds heat.
+    if running then
+        if components.temperature < Config.NormalOperatingTemperature then
+            components.temperature = math.min(Config.NormalOperatingTemperature,
+                components.temperature + Config.BaseWarmupPerSecond * dt)
+        end
+        local radiatorDamage = (100.0 - components.radiator) / 100.0
+        local load = math.min(speed / 70.0, 1.0)
+        components.temperature = components.temperature +
+            (radiatorDamage * Config.RadiatorHeatMultiplier * (0.5 + load)) * dt
+    else
+        components.temperature = math.max(20.0,
+            components.temperature - Config.BaseCoolingPerSecond * dt)
+    end
+    components.temperature = math.min(components.temperature, Config.MaximumTemperature)
+
+    if components.temperature >= Config.OverheatStartTemperature then
+        local native = GetVehicleEngineHealth(vehicle)
+        local rate = components.temperature >= Config.CriticalTemperature
+            and Config.CriticalOverheatEngineDamagePerSecond
+            or Config.OverheatEngineDamagePerSecond
+        SetVehicleEngineHealth(vehicle, math.max(native - rate * 10.0 * dt, 0.0))
+        ApplyMechanicalDamage(Config.OverheatMechanicalDamagePerSecond * dt)
+    end
+
+    -- Oil leak and starvation.
+    if components.oil <= Config.OilLeakStart and running then
+        components.oil = Clamp100(components.oil - Config.OilLossPerSecond * dt)
+    end
+    if components.oil <= Config.OilCritical and running then
+        local native = GetVehicleEngineHealth(vehicle)
+        SetVehicleEngineHealth(vehicle, math.max(native - Config.OilEngineDamagePerSecond * 10.0 * dt, 0.0))
+        ApplyMechanicalDamage(Config.OilMechanicalDamagePerSecond * dt)
+    end
+
+    -- Fuel leak. Native fuel level keeps this resource independent of qb-fuel.
+    if components.fuelSystem <= Config.FuelLeakStart then
+        local fuel = GetVehicleFuelLevel(vehicle)
+        if fuel > 0.0 then SetVehicleFuelLevel(vehicle, math.max(fuel - Config.FuelLeakPerSecond * dt, 0.0)) end
+    end
+
+    SyncComponents(vehicle, false)
+end
+
+local function GetTransmissionTorque()
+    if components.transmission >= Config.TransmissionPowerLossStart then return 1.0 end
+    if components.transmission <= 0.0 then return 0.0 end
+    local p = components.transmission / Config.TransmissionPowerLossStart
+    return Config.MinimumTransmissionTorque + ((1.0 - Config.MinimumTransmissionTorque) * p)
 end
 
 local function HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
@@ -280,6 +455,11 @@ CreateThread(function()
                 if HasEntityCollidedWithAnything(vehicle)
                     and (gameTimer - lastCollision) >= Config.CollisionCooldown then
 
+                    local bodyLoss = math.max(previousBodyHealth - currentBodyHealth, 0.0)
+                    local engineLoss = math.max(previousEngineHealth - currentEngineHealth, 0.0)
+
+                    ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLoss, engineLoss)
+
                     local damage = AGCDamage.CalculateImpact(
                         vehicle, previousSpeed, currentSpeed,
                         previousBodyHealth, currentBodyHealth,
@@ -293,6 +473,7 @@ CreateThread(function()
                 end
 
                 HandleRollover(vehicle)
+                HandleComponents(vehicle)
                 HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
                 HandleEngine(vehicle, bodyPercent, enginePercent)
 
@@ -309,6 +490,7 @@ CreateThread(function()
             previousBodyHealth = GetVehicleBodyHealth(vehicle)
             previousEngineHealth = GetVehicleEngineHealth(vehicle)
             previousTankHealth = GetVehiclePetrolTankHealth(vehicle)
+            lastImpactVelocity = GetEntityVelocity(vehicle)
         end
     end
 end)
@@ -326,7 +508,7 @@ CreateThread(function()
                     or vehicleCondition <= Config.DisableThreshold then
                     SetVehicleEngineTorqueMultiplier(currentVehicle, 0.0)
                 else
-                    SetVehicleEngineTorqueMultiplier(currentVehicle, AGCDamage.GetTorqueMultiplier(vehicleCondition))
+                    SetVehicleEngineTorqueMultiplier(currentVehicle, AGCDamage.GetTorqueMultiplier(vehicleCondition) * GetTransmissionTorque())
                 end
                 Wait(0)
             else
@@ -355,6 +537,13 @@ RegisterNetEvent('agc-vehicledamage:client:conditionUpdated', function(netId, co
     end
 
     lastSyncedCondition = vehicleCondition
+end)
+
+RegisterNetEvent('agc-vehicledamage:client:componentsUpdated', function(netId, data)
+    local vehicle = NetToVeh(netId)
+    if vehicle == 0 or not DoesEntityExist(vehicle) or not initialized or vehicle ~= currentVehicle then return end
+    -- Driver remains authoritative; this event primarily initializes/acknowledges.
+    if type(data) == 'table' and next(components) == nil then components = ReadComponents(vehicle) end
 end)
 
 RegisterNetEvent('agc-vehicledamage:client:repairVehicle', function(vehicle)
@@ -392,8 +581,14 @@ RegisterCommand('vehstatus', function()
         status = 'DAMAGED'
     end
 
-    Notify(('Mechanical: %.0f%% | Engine: %.0f%% | Body: %.0f%% | Status: %s'):format(
-        mechanical, enginePercent, bodyPercent, status
+    Notify(('Mechanical: %.0f%% | Engine: %.0f%% | Body: %.0f%% | Radiator: %.0f%% | Transmission: %.0f%% | Oil: %.0f%% | Fuel System: %.0f%% | Temp: %.0f C | Status: %s'):format(
+        mechanical, enginePercent, bodyPercent,
+        components.radiator or 100.0,
+        components.transmission or 100.0,
+        components.oil or 100.0,
+        components.fuelSystem or 100.0,
+        components.temperature or 35.0,
+        status
     ))
 end, false)
 
@@ -415,6 +610,12 @@ exports('GetVehicleDamageStatus', function(vehicle)
         engine = AGCDamage.HealthToPercent(GetVehicleEngineHealth(vehicle)),
         body = AGCDamage.HealthToPercent(GetVehicleBodyHealth(vehicle))
     }
+end)
+
+exports('GetVehicleComponents', function(vehicle)
+    if vehicle == 0 or not DoesEntityExist(vehicle) then return nil end
+    if initialized and vehicle == currentVehicle then return components end
+    return ReadComponents(vehicle)
 end)
 
 exports('RepairVehicle', function(vehicle)

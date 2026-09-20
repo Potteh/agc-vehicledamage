@@ -1,51 +1,49 @@
-# AGC Realistic Vehicle Damage - Phase 3.3
+# AGC Realistic Vehicle Damage - Phase 4
 
-Phase 3.3 corrects the overly aggressive mechanical collision model.
+Phase 4 builds component failures on the balanced Phase 3.3 collision model.
 
-## What changed
-Previously, a sudden speed drop could contribute an enormous amount of Mechanical damage.
-That allowed results such as:
+## Components
+- Radiator: frontal impacts can damage cooling capacity.
+- Temperature: warms while running; damaged radiators can cause overheating.
+- Engine: severe frontal impacts can now cause additional engine damage even when GTA
+  would otherwise leave native engine health near 100%.
+- Transmission: hard impacts can damage it and reduce delivered torque.
+- Oil system: severe impacts can damage it; critical oil condition causes continued
+  engine and Mechanical deterioration.
+- Fuel system: severe impacts can damage it; low condition leaks native fuel.
+- Tires: sufficiently severe impacts have a configurable chance to burst a tire.
 
-    Mechanical: 8% | Engine: 100% | Body: 89%
+## Synchronization
+Mechanical condition and the component table are synchronized through vehicle state bags.
+The current driver is authoritative for live damage calculations.
 
-Phase 3.3 no longer treats speed loss itself as major drivetrain damage.
+## /vehstatus
+Now reports:
+Mechanical, Engine, Body, Radiator, Transmission, Oil, Fuel System, Temperature, Status.
 
-Mechanical impact damage now comes primarily from the BODY and ENGINE health actually
-lost during the collision. Impact speed acts as a severity multiplier instead.
+## Repair
+Existing QBCore `/fix` automatic repair compatibility is retained. An explicit repair via:
 
-Engine damage is weighted much more heavily than body damage.
+    exports['agc-vehicledamage']:RepairVehicle(vehicle)
 
-A very hard impact can add a small capped "mechanical shock" penalty, but speed alone
-can no longer destroy the vehicle mechanically.
+also resets the Phase 4 components.
 
-## Body relationship
-Body condition now has a softer mechanical ceiling:
-- body damage below 80% begins limiting pristine Mechanical condition;
-- body influence defaults to 0.20;
-- Engine influence remains much stronger at 0.70.
-
-Therefore light/moderate cosmetic damage should not destroy the drivetrain.
-
-## Important
-The Phase 3.2 synchronization fix remains in place.
-QBCore `/fix` compatibility remains in place.
-Engine or Body reaching 0% still disables the vehicle.
-Critical Engine/Body health still causes progressive deterioration.
+## Important implementation note
+FiveM/GTA does not expose one simple, universally reliable collision-point native for
+every vehicle impact. Phase 4 therefore approximates frontal impact severity using the
+vehicle's motion and collision speed. This avoids hard-coding vehicle-model-specific
+bonnet/engine geometry.
 
 ## Install
-Replace the resource folder and run:
+Replace the resource and run:
 
     restart agc-vehicledamage
 
-## Recommended test
-Repair a vehicle first and verify:
-
-    Mechanical 100% | Engine 100% | Body 100%
-
-Then perform:
-1. a light crash,
-2. a moderate crash,
-3. a hard crash.
-
-Check `/vehstatus` after each one. Mechanical should decline progressively rather than
-dropping from 100% to near zero after a single impact.
+## Suggested test sequence
+1. `/fix`, then `/vehstatus`.
+2. Light front impact.
+3. Moderate front impact.
+4. 60-75 MPH head-on impact.
+5. Continue driving a vehicle with a damaged radiator and watch temperature.
+6. Test repeated hard impacts for transmission/oil/fuel/tire failures.
+7. `/fix` and confirm all systems reset.
