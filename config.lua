@@ -40,6 +40,15 @@ Config.NativeFullHealth = 1000.0
 Config.EngineMechanicalDamageFactor = 0.035
 Config.BodyMechanicalDamageFactor = 0.015
 
+-- Phase 3.1 condition floor/ceiling relationship.
+-- Mechanical cannot remain pristine while the engine/body are badly damaged.
+-- Engine condition has the strongest effect; body condition has a softer effect.
+Config.EnableMechanicalConditionCeiling = true
+Config.EngineConditionInfluence = 0.70
+Config.BodyConditionInfluence = 0.40
+Config.MinimumBodyPenaltyThreshold = 90.0
+Config.MinimumEnginePenaltyThreshold = 98.0
+
 -- Ongoing degradation when a major system is critically damaged.
 Config.CriticalEnginePercent = 25.0
 Config.CriticalBodyPercent = 20.0

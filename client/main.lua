@@ -141,6 +141,37 @@ local function ApplySystemDamageToMechanical(currentBody, currentEngine)
     end
 end
 
+local function ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
+    if not Config.EnableMechanicalConditionCeiling then return end
+
+    -- Convert lost system health into a minimum amount of mechanical wear.
+    -- Engine has a larger influence because it directly represents the powertrain.
+    local enginePenalty = 0.0
+    local bodyPenalty = 0.0
+
+    if enginePercent < Config.MinimumEnginePenaltyThreshold then
+        enginePenalty = (100.0 - enginePercent) * Config.EngineConditionInfluence
+    end
+
+    if bodyPercent < Config.MinimumBodyPenaltyThreshold then
+        bodyPenalty = (100.0 - bodyPercent) * Config.BodyConditionInfluence
+    end
+
+    -- Use the stronger system penalty rather than adding both together.
+    -- Collision-specific damage can still push Mechanical substantially lower.
+    local requiredWear = math.max(enginePenalty, bodyPenalty)
+    local maximumMechanical = AGCDamage.ClampCondition(100.0 - requiredWear)
+
+    if vehicleCondition > maximumMechanical then
+        local old = vehicleCondition
+        vehicleCondition = maximumMechanical
+        SyncCondition(currentVehicle, true)
+        Debug(('Condition ceiling %.2f -> %.2f (Engine %.1f%% / Body %.1f%%)'):format(
+            old, vehicleCondition, enginePercent, bodyPercent
+        ))
+    end
+end
+
 local function HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
     degradationTimer = degradationTimer + Config.UpdateInterval
     if degradationTimer < 1000 then return end
@@ -241,12 +272,11 @@ CreateThread(function()
         elseif not initialized or vehicle ~= currentVehicle then
             ResetVehicleState(vehicle)
         else
-            local replicatedCondition = ReadCondition(vehicle)
-            if math.abs(replicatedCondition - lastSyncedCondition) >= Config.SyncChangeThreshold then
-                vehicleCondition = replicatedCondition
-                lastSyncedCondition = replicatedCondition
-            end
-
+            -- The current driver is authoritative for live damage calculations.
+            -- Do NOT continuously re-read the state bag here: state-bag replication can
+            -- arrive one or more ticks after a client update and overwrite a freshly
+            -- calculated lower mechanical condition with the previous value (often 100%).
+            -- Server-confirmed changes are applied by conditionUpdated below.
             local currentSpeed = AGCDamage.GetSpeedMPH(vehicle)
             local currentBodyHealth = GetVehicleBodyHealth(vehicle)
             local currentEngineHealth = GetVehicleEngineHealth(vehicle)
@@ -259,6 +289,7 @@ CreateThread(function()
 
             if not repaired then
                 ApplySystemDamageToMechanical(currentBodyHealth, currentEngineHealth)
+                ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
 
                 if HasEntityCollidedWithAnything(vehicle)
                     and (gameTimer - lastCollision) >= Config.CollisionCooldown then
@@ -323,10 +354,21 @@ end)
 
 RegisterNetEvent('agc-vehicledamage:client:conditionUpdated', function(netId, condition)
     local vehicle = NetToVeh(netId)
-    if vehicle ~= 0 and DoesEntityExist(vehicle) and initialized and vehicle == currentVehicle then
-        vehicleCondition = AGCDamage.ClampCondition(condition)
-        lastSyncedCondition = vehicleCondition
+    if vehicle == 0 or not DoesEntityExist(vehicle) or not initialized or vehicle ~= currentVehicle then
+        return
     end
+
+    condition = AGCDamage.ClampCondition(condition)
+
+    -- Damage only moves downward during normal operation. Ignore a delayed/stale
+    -- server echo that would raise the driver's freshly calculated condition.
+    -- Repairs are handled explicitly by RepairMechanical(), which sets local state
+    -- to 100 before the server broadcasts the repaired state.
+    if condition <= vehicleCondition then
+        vehicleCondition = condition
+    end
+
+    lastSyncedCondition = vehicleCondition
 end)
 
 RegisterNetEvent('agc-vehicledamage:client:repairVehicle', function(vehicle)
