@@ -132,3 +132,21 @@ Transmission should remain at 55% while you drive and test its symptoms.
 When finished:
 
     /vehdamage reset
+
+## Phase 5.3 transmission symptom retune
+
+Transmission damage is now deliberately obvious during testing:
+
+- 60% and below: noticeable acceleration loss
+- 30% and below: severe acceleration loss and intermittent slipping
+- 12% and below: critical limp mode, approximately 28 MPH maximum
+- 5% and below: near-failure mode, approximately 12 MPH maximum
+
+Use:
+
+    /vehdamage transmission 55
+    /vehdamage transmission 25
+    /vehdamage transmission 10
+    /vehdamage transmission 4
+
+Run `/vehdamage reset` afterward.

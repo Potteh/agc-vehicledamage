@@ -571,23 +571,43 @@ local function GetTransmissionTorque()
     local condition = components.transmission or 100.0
     if condition <= 0.0 then return 0.0 end
 
+    -- Explicit staged torque limits make transmission damage physically obvious.
     local base = 1.0
-    if condition < Config.TransmissionPowerLossStart then
+    if condition <= Config.TransmissionFailurePercent then
+        base = 0.08
+    elseif condition <= Config.TransmissionCriticalPercent then
+        base = Config.TransmissionCriticalTorque
+    elseif condition <= Config.TransmissionSeverePercent then
+        base = Config.TransmissionSevereTorque
+    elseif condition <= Config.TransmissionWarningPercent then
+        base = Config.TransmissionModerateTorque
+    elseif condition < Config.TransmissionPowerLossStart then
         local p = condition / math.max(Config.TransmissionPowerLossStart, 0.01)
         base = Config.MinimumTransmissionTorque + ((1.0 - Config.MinimumTransmissionTorque) * p)
     end
 
-    -- Damaged transmissions intermittently slip under load. This is deterministic
-    -- time-based pulsing rather than random frame-by-frame behavior.
-    local pulse = 0.0
+    -- Intermittent slipping under load.
     local phase = (GetGameTimer() % 4000) / 4000.0
-    if condition <= Config.TransmissionCriticalPercent and phase < 0.30 then
-        pulse = Config.TransmissionCriticalTorquePulse
-    elseif condition <= Config.TransmissionSeverePercent and phase < 0.18 then
-        pulse = Config.TransmissionSevereTorquePulse
+    if condition <= Config.TransmissionCriticalPercent and phase < 0.35 then
+        base = math.min(base, 0.08)
+    elseif condition <= Config.TransmissionSeverePercent and phase < 0.22 then
+        base = math.min(base, 0.24)
     end
 
-    return math.max(0.05, base - pulse)
+    return math.max(0.03, base)
+end
+
+local function ApplyTransmissionSymptoms(vehicle)
+    local condition = components.transmission or 100.0
+    if condition <= Config.TransmissionFailurePercent then
+        SetEntityMaxSpeed(vehicle, Config.TransmissionFailureMaxSpeedMph * 0.44704)
+    elseif condition <= Config.TransmissionCriticalPercent then
+        SetEntityMaxSpeed(vehicle, Config.TransmissionCriticalMaxSpeedMph * 0.44704)
+    else
+        -- Restore a generous cap when no longer critically damaged. GTA's own
+        -- handling remains the actual limiter.
+        SetEntityMaxSpeed(vehicle, 1000.0)
+    end
 end
 
 local function HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
@@ -817,6 +837,7 @@ CreateThread(function()
                     SetVehicleEngineTorqueMultiplier(currentVehicle, 0.0)
                 else
                     SetVehicleEngineTorqueMultiplier(currentVehicle, AGCDamage.GetTorqueMultiplier(vehicleCondition) * GetTransmissionTorque())
+            ApplyTransmissionSymptoms(currentVehicle)
                 end
                 Wait(0)
             else
@@ -978,6 +999,7 @@ if Config.EnableDeveloperDamageCommand then
             developerComponentHoldUntil = 0
             Entity(vehicle).state:set(Config.ComponentStateKey, components, true)
             SyncComponents(vehicle, true)
+            SetEntityMaxSpeed(vehicle, 1000.0)
             Notify('Developer damage state reset to 100%.')
             return
         end

@@ -212,3 +212,12 @@ Config.EnableComponentEffects = true
 -- Phase 5.1 developer testing
 Config.EnableDeveloperDamageCommand = true
 Config.DeveloperDamageCommand = 'vehdamage'
+
+
+-- Phase 5.3 stronger transmission drivability symptoms
+Config.TransmissionModerateTorque = 0.72       -- <= 60%
+Config.TransmissionSevereTorque = 0.42         -- <= 30%
+Config.TransmissionCriticalTorque = 0.16       -- <= 12%
+Config.TransmissionCriticalMaxSpeedMph = 28.0
+Config.TransmissionFailurePercent = 5.0
+Config.TransmissionFailureMaxSpeedMph = 12.0
