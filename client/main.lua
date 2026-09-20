@@ -27,6 +27,7 @@ local activeOverheatFxVehicle = 0
 local componentWarningTimes = {}
 local activeOilFx = nil
 local activeOilFxVehicle = 0
+local developerComponentHoldUntil = 0
 
 local function DefaultComponents()
     return {
@@ -844,6 +845,9 @@ end)
 RegisterNetEvent('agc-vehicledamage:client:componentsUpdated', function(netId, data)
     local vehicle = NetToVeh(netId)
     if vehicle == 0 or not DoesEntityExist(vehicle) or not initialized or vehicle ~= currentVehicle then return end
+    if GetGameTimer() < developerComponentHoldUntil then
+        return
+    end
     if GetGameTimer() < repairHoldUntil then
         -- Explicit repair is authoritative. Do not let an older state-bag/server echo
         -- restore pre-repair component damage.
@@ -950,6 +954,10 @@ if Config.EnableDeveloperDamageCommand then
             return
         end
 
+        if not initialized or currentVehicle ~= vehicle then
+            ResetVehicleState(vehicle)
+        end
+
         local system = string.lower(args[1] or '')
         if system == '' then
             Notify('Usage: /' .. Config.DeveloperDamageCommand .. ' <mechanical|engine|body|radiator|transmission|oil|fuel|temp|reset> <value>')
@@ -962,6 +970,8 @@ if Config.EnableDeveloperDamageCommand then
             SetVehicleEngineHealth(vehicle, Config.NativeFullHealth)
             SetVehiclePetrolTankHealth(vehicle, Config.NativeFullHealth)
             components = DefaultComponents()
+            developerComponentHoldUntil = GetGameTimer() + 3000
+            Entity(vehicle).state:set(Config.ComponentStateKey, components, true)
             SyncComponents(vehicle, true)
             Notify('Developer damage state reset to 100%.')
             return
@@ -971,6 +981,13 @@ if Config.EnableDeveloperDamageCommand then
         if value == nil then
             Notify('Enter a numeric value.')
             return
+        end
+
+        developerComponentHoldUntil = GetGameTimer() + 3000
+
+        local function ForceComponentState()
+            Entity(vehicle).state:set(Config.ComponentStateKey, components, true)
+            SyncComponents(vehicle, true)
         end
 
         if system == 'mechanical' then
@@ -986,19 +1003,19 @@ if Config.EnableDeveloperDamageCommand then
             previousBodyHealth = GetVehicleBodyHealth(vehicle)
         elseif system == 'radiator' then
             components.radiator = Clamp100(value)
-            SyncComponents(vehicle, true)
+            ForceComponentState()
         elseif system == 'transmission' or system == 'trans' then
             components.transmission = Clamp100(value)
-            SyncComponents(vehicle, true)
+            ForceComponentState()
         elseif system == 'oil' then
             components.oil = Clamp100(value)
-            SyncComponents(vehicle, true)
+            ForceComponentState()
         elseif system == 'fuel' or system == 'fuelsystem' then
             components.fuelSystem = Clamp100(value)
-            SyncComponents(vehicle, true)
+            ForceComponentState()
         elseif system == 'temp' or system == 'temperature' then
             components.temperature = math.max(0.0, math.min(value, Config.MaximumTemperature))
-            SyncComponents(vehicle, true)
+            ForceComponentState()
         else
             Notify('Unknown system: ' .. system)
             return

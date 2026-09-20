@@ -97,3 +97,17 @@ Cooling:
     /vehdamage temp 127
 
 Run `/vehdamage reset` between independent tests.
+
+## Phase 5.2 hotfix
+
+Fixes `/vehdamage` component values immediately reverting to 100%.
+
+Developer component changes are now applied locally to the vehicle state immediately,
+synchronized to the server, and protected from stale state echoes for three seconds.
+
+Test:
+
+    /vehdamage transmission 55
+    /vehstatus
+
+Transmission should now report 55%.
