@@ -1,37 +1,53 @@
-# AGC Realistic Vehicle Damage - Phase 4.4
+# AGC Realistic Vehicle Damage - Phase 5
 
-Phase 4.4 keeps the successful Phase 4.3 crash/component model and balances overheating.
+Phase 5 adds player-facing symptoms to the component system while retaining the
+Phase 4.3 collision tuning and Phase 4.4 progressive overheating model.
 
-## Progressive overheating
-The previous system had a large damage jump at critical temperature. Phase 4.4 uses
-three progressive stages:
+## Transmission
+Transmission condition now affects delivered torque below 60%.
+At severe/critical condition the transmission intermittently slips, producing brief
+additional reductions in acceleration rather than simply changing a percentage.
 
-- 105-114 C: high-temperature warning and slow deterioration
-- 115-124 C: severe overheating and faster deterioration
-- 125 C+: critical overheating and rapid deterioration
+Warnings:
+- TRANSMISSION DAMAGED
+- TRANSMISSION SEVERELY DAMAGED
+- TRANSMISSION FAILURE IMMINENT
 
-The driver now has substantially more time to notice the problem, stop the vehicle and
-shut the engine down before catastrophic failure.
+## Oil system
+Existing oil leakage/starvation remains. Low oil now produces escalating driver
+warnings, and severe oil-system damage can produce visible engine-area smoke while
+the engine is running.
 
-## Warnings
-Notifications are rate-limited and escalate through:
-- ENGINE TEMPERATURE HIGH
-- ENGINE OVERHEATING
-- CRITICAL ENGINE TEMPERATURE - STOP VEHICLE
+Warnings:
+- OIL SYSTEM DAMAGED
+- LOW OIL PRESSURE / SEVERE LEAK
+- CRITICAL OIL SYSTEM FAILURE
 
-## Effects
-Steam/smoke effects begin as temperature becomes severe and intensify at critical
-temperature. Engine 0% still results in the existing disabled/catastrophic behavior.
+## Fuel system
+Fuel leaks now become progressively faster as fuel-system condition deteriorates.
 
-## Crash damage
-Phase 4.3 crash/component tuning is intentionally unchanged.
+Warnings:
+- FUEL SYSTEM DAMAGED
+- SEVERE FUEL LEAK
+- CRITICAL FUEL SYSTEM LEAK
 
-## Test
-Damage the radiator, continue driving under load, and periodically use `/vehstatus`.
-Watch the progression through 105 C, 115 C and 125 C.
+The script continues to use native vehicle fuel level, keeping the core resource
+standalone. qb-fuel-specific integration can be added separately if desired.
 
-Also test pulling over and shutting the engine off during an overheat event. Temperature
-should fall and continued overheat damage should stop as the vehicle cools.
+## Cooling
+Damaged/critical radiator condition now has cooling-system warnings in addition to
+the temperature warnings introduced in Phase 4.4.
 
-Install:
+## Repair
+`/fix` detection and explicit repair reset all custom components and warning state.
+
+## Install
+Replace the resource folder and run:
+
     restart agc-vehicledamage
+
+## Testing
+Normal crash testing may take a while to push Transmission/Oil/Fuel into their severe
+ranges. `/vehstatus` remains the detailed diagnostic view. The next development step
+can add mechanic/admin diagnostic setters so each component can be tested directly
+without repeatedly crashing a vehicle.

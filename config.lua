@@ -175,3 +175,35 @@ Config.TemperatureWarningCooldownMs = 12000
 Config.EnableOverheatEffects = true
 Config.SteamStartTemperature = 112.0
 Config.HeavySmokeTemperature = 125.0
+
+
+-- Phase 5 component symptoms / feedback
+Config.ComponentWarningCooldownMs = 15000
+
+-- Transmission symptoms
+Config.TransmissionWarningPercent = 60.0
+Config.TransmissionSeverePercent = 30.0
+Config.TransmissionCriticalPercent = 12.0
+Config.TransmissionSevereTorquePulse = 0.10
+Config.TransmissionCriticalTorquePulse = 0.24
+
+-- Oil symptoms
+Config.OilWarningPercent = 45.0
+Config.OilSeverePercent = 25.0
+Config.OilCriticalPercent = 12.0
+Config.OilSmokeStartPercent = 30.0
+
+-- Fuel system symptoms
+Config.FuelWarningPercent = 40.0
+Config.FuelSeverePercent = 20.0
+Config.FuelCriticalPercent = 8.0
+Config.FuelSevereLeakMultiplier = 2.0
+Config.FuelCriticalLeakMultiplier = 4.0
+
+-- Radiator/cooling warnings
+Config.RadiatorWarningPercent = 60.0
+Config.RadiatorCriticalPercent = 25.0
+
+-- Driver feedback
+Config.EnableComponentWarnings = true
+Config.EnableComponentEffects = true

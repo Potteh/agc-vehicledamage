@@ -24,6 +24,9 @@ local repairHoldUntil = 0
 local lastTemperatureWarning = 0
 local activeOverheatFx = nil
 local activeOverheatFxVehicle = 0
+local componentWarningTimes = {}
+local activeOilFx = nil
+local activeOilFxVehicle = 0
 
 local function DefaultComponents()
     return {
@@ -101,6 +104,7 @@ local function RepairMechanical(vehicle, notifyPlayer)
     catastrophicFailure = false
     components = DefaultComponents()
     repairHoldUntil = GetGameTimer() + Config.RepairHoldMs
+    componentWarningTimes = {}
     lastRepairAt = GetGameTimer()
 
     SetVehicleUndriveable(vehicle, false)
@@ -371,6 +375,80 @@ local function TemperatureWarning(temp)
     lastTemperatureWarning = now
 end
 
+local function ComponentWarning(key, message)
+    if not Config.EnableComponentWarnings then return end
+    local now = GetGameTimer()
+    local last = componentWarningTimes[key] or 0
+    if (now - last) < Config.ComponentWarningCooldownMs then return end
+    componentWarningTimes[key] = now
+    Notify(message)
+end
+
+local function StopOilFx()
+    if activeOilFx then
+        StopParticleFxLooped(activeOilFx, false)
+        activeOilFx = nil
+    end
+    activeOilFxVehicle = 0
+end
+
+local function StartOilFx(vehicle)
+    if not Config.EnableComponentEffects then return end
+    if activeOilFx and activeOilFxVehicle == vehicle then return end
+    StopOilFx()
+
+    RequestNamedPtfxAsset('core')
+    local timeout = GetGameTimer() + 1500
+    while not HasNamedPtfxAssetLoaded('core') and GetGameTimer() < timeout do Wait(0) end
+    if not HasNamedPtfxAssetLoaded('core') then return end
+
+    UseParticleFxAssetNextCall('core')
+    activeOilFx = StartParticleFxLoopedOnEntity(
+        'ent_amb_smoke_foundry', vehicle,
+        0.0, 1.0, 0.35,
+        0.0, 0.0, 0.0,
+        0.12, false, false, false
+    )
+    activeOilFxVehicle = vehicle
+end
+
+local function HandleComponentWarnings(vehicle)
+    local radiator = components.radiator or 100.0
+    local transmission = components.transmission or 100.0
+    local oil = components.oil or 100.0
+    local fuelSystem = components.fuelSystem or 100.0
+
+    if radiator <= Config.RadiatorCriticalPercent then
+        ComponentWarning('radiator', ('COOLING SYSTEM CRITICAL: %.0f%%'):format(radiator))
+    elseif radiator <= Config.RadiatorWarningPercent then
+        ComponentWarning('radiator', ('COOLING SYSTEM DAMAGED: %.0f%%'):format(radiator))
+    end
+
+    if transmission <= Config.TransmissionCriticalPercent then
+        ComponentWarning('transmission', ('TRANSMISSION FAILURE IMMINENT: %.0f%%'):format(transmission))
+    elseif transmission <= Config.TransmissionSeverePercent then
+        ComponentWarning('transmission', ('TRANSMISSION SEVERELY DAMAGED: %.0f%%'):format(transmission))
+    elseif transmission <= Config.TransmissionWarningPercent then
+        ComponentWarning('transmission', ('TRANSMISSION DAMAGED: %.0f%%'):format(transmission))
+    end
+
+    if oil <= Config.OilCriticalPercent then
+        ComponentWarning('oil', ('CRITICAL OIL SYSTEM FAILURE: %.0f%%'):format(oil))
+    elseif oil <= Config.OilSeverePercent then
+        ComponentWarning('oil', ('LOW OIL PRESSURE / SEVERE LEAK: %.0f%%'):format(oil))
+    elseif oil <= Config.OilWarningPercent then
+        ComponentWarning('oil', ('OIL SYSTEM DAMAGED: %.0f%%'):format(oil))
+    end
+
+    if fuelSystem <= Config.FuelCriticalPercent then
+        ComponentWarning('fuel', ('CRITICAL FUEL SYSTEM LEAK: %.0f%%'):format(fuelSystem))
+    elseif fuelSystem <= Config.FuelSeverePercent then
+        ComponentWarning('fuel', ('SEVERE FUEL LEAK: %.0f%%'):format(fuelSystem))
+    elseif fuelSystem <= Config.FuelWarningPercent then
+        ComponentWarning('fuel', ('FUEL SYSTEM DAMAGED: %.0f%%'):format(fuelSystem))
+    end
+end
+
 local function HandleComponents(vehicle)
     local now = GetGameTimer()
     if lastComponentTick == 0 then lastComponentTick = now return end
@@ -438,10 +516,30 @@ local function HandleComponents(vehicle)
         ApplyMechanicalDamage(Config.OilMechanicalDamagePerSecond * dt)
     end
 
-    -- Fuel leak. Native fuel level keeps this resource independent of qb-fuel.
+    -- Fuel leak. Severity increases as the fuel system deteriorates.
     if components.fuelSystem <= Config.FuelLeakStart then
         local fuel = GetVehicleFuelLevel(vehicle)
-        if fuel > 0.0 then SetVehicleFuelLevel(vehicle, math.max(fuel - Config.FuelLeakPerSecond * dt, 0.0)) end
+        local leakMultiplier = 1.0
+        if components.fuelSystem <= Config.FuelCriticalPercent then
+            leakMultiplier = Config.FuelCriticalLeakMultiplier
+        elseif components.fuelSystem <= Config.FuelSeverePercent then
+            leakMultiplier = Config.FuelSevereLeakMultiplier
+        end
+        if fuel > 0.0 then
+            SetVehicleFuelLevel(vehicle, math.max(
+                fuel - (Config.FuelLeakPerSecond * leakMultiplier * dt), 0.0
+            ))
+        end
+    end
+
+    HandleComponentWarnings(vehicle)
+
+    if Config.EnableComponentEffects then
+        if components.oil <= Config.OilSmokeStartPercent and GetIsVehicleEngineRunning(vehicle) then
+            StartOilFx(vehicle)
+        elseif activeOilFxVehicle == vehicle then
+            StopOilFx()
+        end
     end
 
     SyncComponents(vehicle, false)
@@ -457,14 +555,38 @@ CreateThread(function()
                 StopOverheatFx()
             end
         end
+        if activeOilFx then
+            if not initialized or currentVehicle == 0 or not DoesEntityExist(currentVehicle)
+                or activeOilFxVehicle ~= currentVehicle
+                or (components.oil or 100.0) > Config.OilSmokeStartPercent
+                or not GetIsVehicleEngineRunning(currentVehicle) then
+                StopOilFx()
+            end
+        end
     end
 end)
 
 local function GetTransmissionTorque()
-    if components.transmission >= Config.TransmissionPowerLossStart then return 1.0 end
-    if components.transmission <= 0.0 then return 0.0 end
-    local p = components.transmission / Config.TransmissionPowerLossStart
-    return Config.MinimumTransmissionTorque + ((1.0 - Config.MinimumTransmissionTorque) * p)
+    local condition = components.transmission or 100.0
+    if condition <= 0.0 then return 0.0 end
+
+    local base = 1.0
+    if condition < Config.TransmissionPowerLossStart then
+        local p = condition / math.max(Config.TransmissionPowerLossStart, 0.01)
+        base = Config.MinimumTransmissionTorque + ((1.0 - Config.MinimumTransmissionTorque) * p)
+    end
+
+    -- Damaged transmissions intermittently slip under load. This is deterministic
+    -- time-based pulsing rather than random frame-by-frame behavior.
+    local pulse = 0.0
+    local phase = (GetGameTimer() % 4000) / 4000.0
+    if condition <= Config.TransmissionCriticalPercent and phase < 0.30 then
+        pulse = Config.TransmissionCriticalTorquePulse
+    elseif condition <= Config.TransmissionSeverePercent and phase < 0.18 then
+        pulse = Config.TransmissionSevereTorquePulse
+    end
+
+    return math.max(0.05, base - pulse)
 end
 
 local function HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
