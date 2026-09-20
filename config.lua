@@ -184,7 +184,7 @@ Config.ComponentWarningCooldownMs = 15000
 Config.TransmissionWarningPercent = 60.0
 Config.TransmissionSeverePercent = 30.0
 Config.TransmissionCriticalPercent = 12.0
-Config.TransmissionSevereTorquePulse = 0.10
+Config.TransmissionSevereTorquePulse = 0.16
 Config.TransmissionCriticalTorquePulse = 0.24
 
 -- Oil symptoms
@@ -197,8 +197,8 @@ Config.OilSmokeStartPercent = 30.0
 Config.FuelWarningPercent = 40.0
 Config.FuelSeverePercent = 20.0
 Config.FuelCriticalPercent = 8.0
-Config.FuelSevereLeakMultiplier = 2.0
-Config.FuelCriticalLeakMultiplier = 4.0
+Config.FuelSevereLeakMultiplier = 4.0
+Config.FuelCriticalLeakMultiplier = 8.0
 
 -- Radiator/cooling warnings
 Config.RadiatorWarningPercent = 60.0
@@ -215,8 +215,8 @@ Config.DeveloperDamageCommand = 'vehdamage'
 
 
 -- Phase 5.3 stronger transmission drivability symptoms
-Config.TransmissionModerateTorque = 0.72       -- <= 60%
-Config.TransmissionSevereTorque = 0.42         -- <= 30%
+Config.TransmissionModerateTorque = 0.55       -- <= 60%
+Config.TransmissionSevereTorque = 0.28         -- <= 30%
 Config.TransmissionCriticalTorque = 0.16       -- <= 12%
 Config.TransmissionCriticalMaxSpeedMph = 28.0
 Config.TransmissionFailurePercent = 5.0
@@ -232,3 +232,8 @@ Config.OilStarvationSevereEngineDamagePerSecond = 0.55
 Config.OilStarvationSevereMechanicalDamagePerSecond = 0.08
 Config.OilStarvationCriticalEngineDamagePerSecond = 2.25
 Config.OilStarvationCriticalMechanicalDamagePerSecond = 0.30
+
+-- Phase 5.5 balance pass
+-- Critical transmission behavior (<=12% / <=5%) intentionally unchanged.
+-- Oil, radiator, crash and thermal tuning intentionally unchanged.
+Config.TransmissionSevereMaxSpeedMph = 65.0

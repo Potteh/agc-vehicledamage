@@ -2,8 +2,8 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'AGC Development'
-description 'AGC Realistic Vehicle Damage - Phase 5.4'
-version '5.4.0'
+description 'AGC Realistic Vehicle Damage - Phase 5.5'
+version '5.5.0'
 
 lua54 'yes'
 

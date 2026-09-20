@@ -614,6 +614,8 @@ local function ApplyTransmissionSymptoms(vehicle)
         SetEntityMaxSpeed(vehicle, Config.TransmissionFailureMaxSpeedMph * 0.44704)
     elseif condition <= Config.TransmissionCriticalPercent then
         SetEntityMaxSpeed(vehicle, Config.TransmissionCriticalMaxSpeedMph * 0.44704)
+    elseif condition <= Config.TransmissionSeverePercent then
+        SetEntityMaxSpeed(vehicle, Config.TransmissionSevereMaxSpeedMph * 0.44704)
     else
         -- Restore a generous cap when no longer critically damaged. GTA's own
         -- handling remains the actual limiter.

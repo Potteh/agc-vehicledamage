@@ -159,3 +159,27 @@ Retunes oil starvation after live testing.
 
 Oil leakage itself remains unchanged.
 Recommended: reset, set oil to 19%, and check /vehstatus near 15%, 10%, and 5%.
+
+## Phase 5.5 balance pass
+
+Based on live testing:
+
+Transmission:
+- <=60% torque stage strengthened from 0.72 to 0.55.
+- <=30% torque stage strengthened from 0.42 to 0.28.
+- <=30% also receives a 65 MPH maximum-speed ceiling.
+- Severe slipping pulse strengthened.
+- <=12% 28 MPH limp mode is unchanged.
+- <=5% 12 MPH near-failure mode is unchanged.
+
+Fuel:
+- Severe leak multiplier increased from 2x to 4x.
+- Critical leak multiplier increased from 4x to 8x.
+- Fuel-system condition itself remains fixed until further physical damage occurs;
+  the damaged system leaks the gasoline stored in the tank.
+
+Unchanged:
+- Phase 5.4 oil-starvation tuning
+- radiator/temperature tuning
+- collision/component impact tuning
+- critical transmission behavior
