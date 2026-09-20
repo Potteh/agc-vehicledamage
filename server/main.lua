@@ -12,7 +12,6 @@ local function GetValidatedDrivenVehicle(src, netId)
 
     local ped = GetPlayerPed(src)
     if ped == 0 or not DoesEntityExist(ped) then return 0 end
-
     if GetVehiclePedIsIn(ped, false) ~= vehicle then return 0 end
     if GetPedInVehicleSeat(vehicle, -1) ~= ped then return 0 end
 
@@ -20,8 +19,7 @@ local function GetValidatedDrivenVehicle(src, netId)
 end
 
 RegisterNetEvent('agc-vehicledamage:server:setCondition', function(netId, condition)
-    local src = source
-    local vehicle = GetValidatedDrivenVehicle(src, netId)
+    local vehicle = GetValidatedDrivenVehicle(source, netId)
     if vehicle == 0 then return end
 
     condition = ClampCondition(condition)
@@ -30,23 +28,20 @@ RegisterNetEvent('agc-vehicledamage:server:setCondition', function(netId, condit
 end)
 
 RegisterNetEvent('agc-vehicledamage:server:repairVehicle', function(netId)
-    local src = source
-    local vehicle = GetValidatedDrivenVehicle(src, netId)
+    local vehicle = GetValidatedDrivenVehicle(source, netId)
     if vehicle == 0 then return end
 
-    local condition = Config.DefaultCondition
-    Entity(vehicle).state:set(Config.StateBagKey, condition, true)
-    TriggerClientEvent('agc-vehicledamage:client:conditionUpdated', -1, tonumber(netId), condition)
+    Entity(vehicle).state:set(Config.StateBagKey, Config.DefaultCondition, true)
+    TriggerClientEvent('agc-vehicledamage:client:conditionUpdated', -1, tonumber(netId), Config.DefaultCondition)
 end)
 
--- Server export for trusted server-side integrations that already have an entity handle.
 exports('RepairVehicle', function(vehicle)
     vehicle = tonumber(vehicle) or 0
     if vehicle == 0 or not DoesEntityExist(vehicle) then return false end
 
     Entity(vehicle).state:set(Config.StateBagKey, Config.DefaultCondition, true)
-
     local netId = NetworkGetNetworkIdFromEntity(vehicle)
+
     if netId and netId > 0 then
         TriggerClientEvent('agc-vehicledamage:client:conditionUpdated', -1, netId, Config.DefaultCondition)
     end

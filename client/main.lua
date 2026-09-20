@@ -9,8 +9,10 @@ local previousTankHealth = 1000.0
 
 local lastCollision = 0
 local rolloverTimer = 0
+local degradationTimer = 0
 local initialized = false
 local lastRepairAt = 0
+local catastrophicFailure = false
 
 local function Debug(message)
     if Config.Debug then print(('[agc-vehicledamage] %s'):format(message)) end
@@ -32,16 +34,12 @@ end
 
 local function SyncCondition(vehicle, force)
     if vehicle == 0 or not DoesEntityExist(vehicle) then return end
-
     vehicleCondition = AGCDamage.ClampCondition(vehicleCondition)
 
     if not force and math.abs(vehicleCondition - lastSyncedCondition) < Config.SyncChangeThreshold then return end
 
     local netId = NetworkGetNetworkIdFromEntity(vehicle)
-    if netId == 0 then
-        Debug('Unable to sync condition: no network ID.')
-        return
-    end
+    if netId == 0 then return end
 
     TriggerServerEvent('agc-vehicledamage:server:setCondition', netId, vehicleCondition)
     lastSyncedCondition = vehicleCondition
@@ -52,6 +50,7 @@ local function RepairMechanical(vehicle, notifyPlayer)
 
     vehicleCondition = Config.DefaultCondition
     lastSyncedCondition = Config.DefaultCondition
+    catastrophicFailure = false
     lastRepairAt = GetGameTimer()
 
     SetVehicleUndriveable(vehicle, false)
@@ -66,11 +65,7 @@ local function RepairMechanical(vehicle, notifyPlayer)
     previousTankHealth = GetVehiclePetrolTankHealth(vehicle)
     previousSpeed = AGCDamage.GetSpeedMPH(vehicle)
 
-    if notifyPlayer then
-        Notify('Mechanical condition restored to 100%.')
-    end
-
-    Debug('Mechanical condition repaired to 100%.')
+    if notifyPlayer then Notify('Mechanical condition restored to 100%.') end
     return true
 end
 
@@ -85,14 +80,14 @@ local function ResetVehicleState(vehicle)
     previousTankHealth = GetVehiclePetrolTankHealth(vehicle)
 
     rolloverTimer = 0
+    degradationTimer = 0
     lastCollision = 0
+    catastrophicFailure = false
     initialized = true
 
     if Entity(vehicle).state[Config.StateBagKey] == nil then
         SyncCondition(vehicle, true)
     end
-
-    Debug(('Vehicle initialized: %s | condition %.2f'):format(vehicle, vehicleCondition))
 end
 
 local function LeaveVehicle()
@@ -109,7 +104,9 @@ local function LeaveVehicle()
     previousEngineHealth = 1000.0
     previousTankHealth = 1000.0
     rolloverTimer = 0
+    degradationTimer = 0
     lastCollision = 0
+    catastrophicFailure = false
 end
 
 local function ApplyMechanicalDamage(amount)
@@ -118,25 +115,67 @@ local function ApplyMechanicalDamage(amount)
     local oldCondition = vehicleCondition
     vehicleCondition = AGCDamage.ClampCondition(vehicleCondition - amount)
 
-    Debug(('Damage %.2f | %.2f -> %.2f'):format(amount, oldCondition, vehicleCondition))
-
     if currentVehicle ~= 0 then SyncCondition(currentVehicle, true) end
 
     if oldCondition > Config.PowerLossStart and vehicleCondition <= Config.PowerLossStart then
-        Notify('The vehicle has suffered mechanical damage. Engine performance is reduced.')
+        Notify('Mechanical damage detected. Engine performance is reduced.')
     elseif oldCondition > Config.SeverePowerLossStart and vehicleCondition <= Config.SeverePowerLossStart then
-        Notify('Severe mechanical damage detected. Drive carefully.')
+        Notify('Severe mechanical damage. Drive carefully.')
     elseif oldCondition > Config.StallThreshold and vehicleCondition <= Config.StallThreshold then
-        Notify('Critical engine damage. The engine may stall.')
+        Notify('Critical mechanical damage. The engine may stall.')
     elseif oldCondition > Config.DisableThreshold and vehicleCondition <= Config.DisableThreshold then
         Notify('The vehicle is mechanically disabled.')
     end
 end
 
-local function HandleEngine(vehicle)
+local function ApplySystemDamageToMechanical(currentBody, currentEngine)
+    local bodyLoss = math.max(previousBodyHealth - currentBody, 0.0)
+    local engineLoss = math.max(previousEngineHealth - currentEngine, 0.0)
+
+    local wear =
+        (bodyLoss * Config.BodyMechanicalDamageFactor) +
+        (engineLoss * Config.EngineMechanicalDamageFactor)
+
+    if wear > 0.0 then
+        ApplyMechanicalDamage(wear)
+    end
+end
+
+local function HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
+    degradationTimer = degradationTimer + Config.UpdateInterval
+    if degradationTimer < 1000 then return end
+    degradationTimer = 0
+
+    local loss = 0.0
+
+    if enginePercent <= Config.EngineFailurePercent or bodyPercent <= Config.BodyFailurePercent then
+        loss = Config.CatastrophicMechanicalLossPerSecond
+
+        if not catastrophicFailure then
+            catastrophicFailure = true
+            Notify('Catastrophic vehicle failure. The vehicle is disabled.')
+        end
+    else
+        if enginePercent <= Config.CriticalEnginePercent then
+            loss = loss + Config.CriticalEngineMechanicalLossPerSecond
+        end
+        if bodyPercent <= Config.CriticalBodyPercent then
+            loss = loss + Config.CriticalBodyMechanicalLossPerSecond
+        end
+    end
+
+    if loss > 0.0 then ApplyMechanicalDamage(loss) end
+end
+
+local function HandleEngine(vehicle, bodyPercent, enginePercent)
     if vehicle == 0 or not DoesEntityExist(vehicle) then return end
 
-    if vehicleCondition <= Config.DisableThreshold then
+    local failed =
+        vehicleCondition <= Config.DisableThreshold or
+        enginePercent <= Config.EngineFailurePercent or
+        bodyPercent <= Config.BodyFailurePercent
+
+    if failed then
         SetVehicleEngineTorqueMultiplier(vehicle, 0.0)
         SetVehicleUndriveable(vehicle, true)
         SetVehicleEngineOn(vehicle, false, true, true)
@@ -148,7 +187,6 @@ local function HandleEngine(vehicle)
     if vehicleCondition <= Config.StallThreshold and GetIsVehicleEngineRunning(vehicle) then
         if math.random(1, 1000) <= 4 then
             SetVehicleEngineOn(vehicle, false, true, true)
-            Debug('Engine stalled.')
         end
     end
 end
@@ -172,21 +210,16 @@ local function DetectFullRepair(vehicle, body, engine, tank)
     if vehicleCondition >= 99.9 then return false end
     if (GetGameTimer() - lastRepairAt) < Config.RepairDetectionCooldownMs then return false end
 
-    local nowHealthy =
+    local healthy =
         body >= Config.RepairDetectionBodyHealth and
         engine >= Config.RepairDetectionEngineHealth and
         tank >= Config.RepairDetectionPetrolTankHealth
 
-    if not nowHealthy then return false end
+    if not healthy then return false end
 
-    -- A repair command generally causes one or more native health values to jump
-    -- substantially upward in a single update. This prevents normal healthy
-    -- vehicles from silently clearing AGC damage.
-    local bodyJump = body - previousBodyHealth
-    local engineJump = engine - previousEngineHealth
-    local tankJump = tank - previousTankHealth
-
-    if bodyJump >= 25.0 or engineJump >= 25.0 or tankJump >= 25.0 then
+    if (body - previousBodyHealth) >= 25.0
+        or (engine - previousEngineHealth) >= 25.0
+        or (tank - previousTankHealth) >= 25.0 then
         RepairMechanical(vehicle, false)
         return true
     end
@@ -205,60 +238,60 @@ CreateThread(function()
 
         if vehicle == 0 or GetPedInVehicleSeat(vehicle, -1) ~= ped then
             if initialized then LeaveVehicle() end
+        elseif not initialized or vehicle ~= currentVehicle then
+            ResetVehicleState(vehicle)
         else
-            if not initialized or vehicle ~= currentVehicle then
-                ResetVehicleState(vehicle)
-            else
-                local replicatedCondition = ReadCondition(vehicle)
-                if math.abs(replicatedCondition - lastSyncedCondition) >= Config.SyncChangeThreshold then
-                    vehicleCondition = replicatedCondition
-                    lastSyncedCondition = replicatedCondition
-                end
-
-                local currentSpeed = AGCDamage.GetSpeedMPH(vehicle)
-                local currentBodyHealth = GetVehicleBodyHealth(vehicle)
-                local currentEngineHealth = GetVehicleEngineHealth(vehicle)
-                local currentTankHealth = GetVehiclePetrolTankHealth(vehicle)
-                local gameTimer = GetGameTimer()
-
-                local repaired = DetectFullRepair(vehicle, currentBodyHealth, currentEngineHealth, currentTankHealth)
-
-                if not repaired then
-                    if HasEntityCollidedWithAnything(vehicle)
-                        and (gameTimer - lastCollision) >= Config.CollisionCooldown then
-
-                        local damage = AGCDamage.CalculateImpact(
-                            vehicle,
-                            previousSpeed,
-                            currentSpeed,
-                            previousBodyHealth,
-                            currentBodyHealth,
-                            previousEngineHealth,
-                            currentEngineHealth
-                        )
-
-                        if damage > 0.0 then
-                            ApplyMechanicalDamage(damage)
-                            lastCollision = gameTimer
-                        end
-                    end
-
-                    HandleRollover(vehicle)
-                    HandleEngine(vehicle)
-
-                    if Config.ProtectEngineHealth
-                        and currentEngineHealth < Config.MinimumProtectedEngineHealth
-                        and vehicleCondition > Config.DisableThreshold then
-                        SetVehicleEngineHealth(vehicle, Config.MinimumProtectedEngineHealth)
-                        currentEngineHealth = Config.MinimumProtectedEngineHealth
-                    end
-                end
-
-                previousSpeed = currentSpeed
-                previousBodyHealth = GetVehicleBodyHealth(vehicle)
-                previousEngineHealth = GetVehicleEngineHealth(vehicle)
-                previousTankHealth = GetVehiclePetrolTankHealth(vehicle)
+            local replicatedCondition = ReadCondition(vehicle)
+            if math.abs(replicatedCondition - lastSyncedCondition) >= Config.SyncChangeThreshold then
+                vehicleCondition = replicatedCondition
+                lastSyncedCondition = replicatedCondition
             end
+
+            local currentSpeed = AGCDamage.GetSpeedMPH(vehicle)
+            local currentBodyHealth = GetVehicleBodyHealth(vehicle)
+            local currentEngineHealth = GetVehicleEngineHealth(vehicle)
+            local currentTankHealth = GetVehiclePetrolTankHealth(vehicle)
+            local bodyPercent = AGCDamage.HealthToPercent(currentBodyHealth)
+            local enginePercent = AGCDamage.HealthToPercent(currentEngineHealth)
+            local gameTimer = GetGameTimer()
+
+            local repaired = DetectFullRepair(vehicle, currentBodyHealth, currentEngineHealth, currentTankHealth)
+
+            if not repaired then
+                ApplySystemDamageToMechanical(currentBodyHealth, currentEngineHealth)
+
+                if HasEntityCollidedWithAnything(vehicle)
+                    and (gameTimer - lastCollision) >= Config.CollisionCooldown then
+
+                    local damage = AGCDamage.CalculateImpact(
+                        vehicle, previousSpeed, currentSpeed,
+                        previousBodyHealth, currentBodyHealth,
+                        previousEngineHealth, currentEngineHealth
+                    )
+
+                    if damage > 0.0 then
+                        ApplyMechanicalDamage(damage)
+                        lastCollision = gameTimer
+                    end
+                end
+
+                HandleRollover(vehicle)
+                HandleCriticalDegradation(vehicle, bodyPercent, enginePercent)
+                HandleEngine(vehicle, bodyPercent, enginePercent)
+
+                if Config.ProtectEngineHealth
+                    and currentEngineHealth < Config.MinimumProtectedEngineHealth
+                    and enginePercent > Config.EngineFailurePercent
+                    and vehicleCondition > Config.DisableThreshold then
+                    SetVehicleEngineHealth(vehicle, Config.MinimumProtectedEngineHealth)
+                    currentEngineHealth = Config.MinimumProtectedEngineHealth
+                end
+            end
+
+            previousSpeed = currentSpeed
+            previousBodyHealth = GetVehicleBodyHealth(vehicle)
+            previousEngineHealth = GetVehicleEngineHealth(vehicle)
+            previousTankHealth = GetVehiclePetrolTankHealth(vehicle)
         end
     end
 end)
@@ -268,7 +301,16 @@ CreateThread(function()
         if initialized and currentVehicle ~= 0 and DoesEntityExist(currentVehicle) then
             local ped = PlayerPedId()
             if GetPedInVehicleSeat(currentVehicle, -1) == ped then
-                SetVehicleEngineTorqueMultiplier(currentVehicle, AGCDamage.GetTorqueMultiplier(vehicleCondition))
+                local bodyPercent = AGCDamage.HealthToPercent(GetVehicleBodyHealth(currentVehicle))
+                local enginePercent = AGCDamage.HealthToPercent(GetVehicleEngineHealth(currentVehicle))
+
+                if bodyPercent <= Config.BodyFailurePercent
+                    or enginePercent <= Config.EngineFailurePercent
+                    or vehicleCondition <= Config.DisableThreshold then
+                    SetVehicleEngineTorqueMultiplier(currentVehicle, 0.0)
+                else
+                    SetVehicleEngineTorqueMultiplier(currentVehicle, AGCDamage.GetTorqueMultiplier(vehicleCondition))
+                end
                 Wait(0)
             else
                 Wait(250)
@@ -281,30 +323,20 @@ end)
 
 RegisterNetEvent('agc-vehicledamage:client:conditionUpdated', function(netId, condition)
     local vehicle = NetToVeh(netId)
-    if vehicle == 0 or not DoesEntityExist(vehicle) then return end
-
-    if initialized and vehicle == currentVehicle then
+    if vehicle ~= 0 and DoesEntityExist(vehicle) and initialized and vehicle == currentVehicle then
         vehicleCondition = AGCDamage.ClampCondition(condition)
         lastSyncedCondition = vehicleCondition
     end
 end)
 
--- Public event for client resources that repair a vehicle.
 RegisterNetEvent('agc-vehicledamage:client:repairVehicle', function(vehicle)
     vehicle = tonumber(vehicle) or 0
-    if vehicle == 0 then
-        local ped = PlayerPedId()
-        vehicle = GetVehiclePedIsIn(ped, false)
-    end
-
-    if vehicle ~= 0 and DoesEntityExist(vehicle) then
-        RepairMechanical(vehicle, false)
-    end
+    if vehicle == 0 then vehicle = GetVehiclePedIsIn(PlayerPedId(), false) end
+    if vehicle ~= 0 and DoesEntityExist(vehicle) then RepairMechanical(vehicle, false) end
 end)
 
 RegisterCommand('vehstatus', function()
-    local ped = PlayerPedId()
-    local vehicle = GetVehiclePedIsIn(ped, false)
+    local vehicle = GetVehiclePedIsIn(PlayerPedId(), false)
 
     if vehicle == 0 then
         Notify('You are not inside a vehicle.')
@@ -314,11 +346,26 @@ RegisterCommand('vehstatus', function()
     local mechanical = ReadCondition(vehicle)
     if initialized and vehicle == currentVehicle then mechanical = vehicleCondition end
 
-    Notify(('Mechanical: %.0f%% | Engine: %.0f | Body: %.0f | Speed: %.0f MPH'):format(
-        mechanical,
-        GetVehicleEngineHealth(vehicle),
-        GetVehicleBodyHealth(vehicle),
-        AGCDamage.GetSpeedMPH(vehicle)
+    local enginePercent = AGCDamage.HealthToPercent(GetVehicleEngineHealth(vehicle))
+    local bodyPercent = AGCDamage.HealthToPercent(GetVehicleBodyHealth(vehicle))
+
+    local status = 'DRIVEABLE'
+    if mechanical <= Config.DisableThreshold
+        or enginePercent <= Config.EngineFailurePercent
+        or bodyPercent <= Config.BodyFailurePercent then
+        status = 'DISABLED'
+    elseif mechanical <= Config.StallThreshold
+        or enginePercent <= Config.CriticalEnginePercent
+        or bodyPercent <= Config.CriticalBodyPercent then
+        status = 'CRITICAL'
+    elseif mechanical <= Config.SeverePowerLossStart then
+        status = 'SEVERE'
+    elseif mechanical <= Config.PowerLossStart then
+        status = 'DAMAGED'
+    end
+
+    Notify(('Mechanical: %.0f%% | Engine: %.0f%% | Body: %.0f%% | Status: %s'):format(
+        mechanical, enginePercent, bodyPercent, status
     ))
 end, false)
 
@@ -331,6 +378,15 @@ exports('GetVehicleMechanicalCondition', function(vehicle)
     if vehicle == 0 or not DoesEntityExist(vehicle) then return nil end
     if initialized and vehicle == currentVehicle then return vehicleCondition end
     return ReadCondition(vehicle)
+end)
+
+exports('GetVehicleDamageStatus', function(vehicle)
+    if vehicle == 0 or not DoesEntityExist(vehicle) then return nil end
+    return {
+        mechanical = (initialized and vehicle == currentVehicle) and vehicleCondition or ReadCondition(vehicle),
+        engine = AGCDamage.HealthToPercent(GetVehicleEngineHealth(vehicle)),
+        body = AGCDamage.HealthToPercent(GetVehicleBodyHealth(vehicle))
+    }
 end)
 
 exports('RepairVehicle', function(vehicle)

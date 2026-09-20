@@ -17,6 +17,11 @@ function AGCDamage.ClampCondition(value)
     return math.max(0.0, math.min(value, 100.0))
 end
 
+function AGCDamage.HealthToPercent(nativeHealth)
+    nativeHealth = tonumber(nativeHealth) or 0.0
+    return math.max(0.0, math.min((nativeHealth / Config.NativeFullHealth) * 100.0, 100.0))
+end
+
 function AGCDamage.CalculateImpact(vehicle, previousSpeed, currentSpeed, previousBody, currentBody, previousEngine, currentEngine)
     local speedDelta = math.max(previousSpeed - currentSpeed, 0.0)
     local bodyDelta = math.max(previousBody - currentBody, 0.0)
@@ -28,7 +33,11 @@ function AGCDamage.CalculateImpact(vehicle, previousSpeed, currentSpeed, previou
     local durability = math.max(AGCDamage.GetDurability(vehicle), 0.1)
     local speedDamage = math.pow(speedDelta, 1.18) * Config.SpeedDeltaMultiplier
     local gtaDamage = (bodyDelta * Config.BodyDamageMultiplier) + (engineDelta * Config.EngineDamageMultiplier)
-    return math.max(0.0, math.min(((speedDamage + gtaDamage) * Config.CollisionDamageMultiplier) / durability, Config.MaxDamagePerImpact))
+
+    return math.max(0.0, math.min(
+        ((speedDamage + gtaDamage) * Config.CollisionDamageMultiplier) / durability,
+        Config.MaxDamagePerImpact
+    ))
 end
 
 function AGCDamage.GetTorqueMultiplier(condition)
