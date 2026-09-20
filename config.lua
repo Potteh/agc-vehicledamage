@@ -207,3 +207,8 @@ Config.RadiatorCriticalPercent = 25.0
 -- Driver feedback
 Config.EnableComponentWarnings = true
 Config.EnableComponentEffects = true
+
+
+-- Phase 5.1 developer testing
+Config.EnableDeveloperDamageCommand = true
+Config.DeveloperDamageCommand = 'vehdamage'

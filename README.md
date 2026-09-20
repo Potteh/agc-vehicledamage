@@ -51,3 +51,49 @@ Normal crash testing may take a while to push Transmission/Oil/Fuel into their s
 ranges. `/vehstatus` remains the detailed diagnostic view. The next development step
 can add mechanic/admin diagnostic setters so each component can be tested directly
 without repeatedly crashing a vehicle.
+
+
+# Phase 5.1 developer testing controls
+
+The `/vehdamage` command lets the driver force individual systems to a chosen condition
+so every Phase 5 symptom can be tested without repeatedly crashing a vehicle.
+
+Examples:
+
+    /vehdamage transmission 20
+    /vehdamage oil 15
+    /vehdamage radiator 30
+    /vehdamage fuel 10
+    /vehdamage engine 25
+    /vehdamage body 40
+    /vehdamage mechanical 40
+    /vehdamage temp 120
+    /vehdamage reset
+
+`reset` restores native Engine/Body/Tank health, Mechanical condition and all custom
+components.
+
+## Suggested test sequence
+
+Transmission:
+    /vehdamage transmission 55
+    /vehdamage transmission 25
+    /vehdamage transmission 10
+
+Oil:
+    /vehdamage oil 40
+    /vehdamage oil 20
+    /vehdamage oil 10
+
+Fuel:
+    /vehdamage fuel 35
+    /vehdamage fuel 15
+    /vehdamage fuel 5
+
+Cooling:
+    /vehdamage radiator 30
+    /vehdamage temp 110
+    /vehdamage temp 118
+    /vehdamage temp 127
+
+Run `/vehdamage reset` between independent tests.

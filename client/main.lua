@@ -927,3 +927,87 @@ end)
 exports('RepairVehicle', function(vehicle)
     return RepairMechanical(vehicle, false)
 end)
+
+
+-- Phase 5.1 developer component testing command.
+-- Usage:
+-- /vehdamage mechanical 40
+-- /vehdamage engine 25
+-- /vehdamage body 50
+-- /vehdamage radiator 30
+-- /vehdamage transmission 20
+-- /vehdamage oil 15
+-- /vehdamage fuel 10
+-- /vehdamage temp 120
+-- /vehdamage reset
+if Config.EnableDeveloperDamageCommand then
+    RegisterCommand(Config.DeveloperDamageCommand, function(_, args)
+        local ped = PlayerPedId()
+        local vehicle = GetVehiclePedIsIn(ped, false)
+
+        if vehicle == 0 or GetPedInVehicleSeat(vehicle, -1) ~= ped then
+            Notify('You must be the driver of a vehicle.')
+            return
+        end
+
+        local system = string.lower(args[1] or '')
+        if system == '' then
+            Notify('Usage: /' .. Config.DeveloperDamageCommand .. ' <mechanical|engine|body|radiator|transmission|oil|fuel|temp|reset> <value>')
+            return
+        end
+
+        if system == 'reset' then
+            RepairMechanical(vehicle, true)
+            SetVehicleBodyHealth(vehicle, Config.NativeFullHealth)
+            SetVehicleEngineHealth(vehicle, Config.NativeFullHealth)
+            SetVehiclePetrolTankHealth(vehicle, Config.NativeFullHealth)
+            components = DefaultComponents()
+            SyncComponents(vehicle, true)
+            Notify('Developer damage state reset to 100%.')
+            return
+        end
+
+        local value = tonumber(args[2])
+        if value == nil then
+            Notify('Enter a numeric value.')
+            return
+        end
+
+        if system == 'mechanical' then
+            vehicleCondition = AGCDamage.ClampCondition(value)
+            SyncCondition(vehicle, true)
+        elseif system == 'engine' then
+            value = Clamp100(value)
+            SetVehicleEngineHealth(vehicle, value * 10.0)
+            previousEngineHealth = GetVehicleEngineHealth(vehicle)
+        elseif system == 'body' then
+            value = Clamp100(value)
+            SetVehicleBodyHealth(vehicle, value * 10.0)
+            previousBodyHealth = GetVehicleBodyHealth(vehicle)
+        elseif system == 'radiator' then
+            components.radiator = Clamp100(value)
+            SyncComponents(vehicle, true)
+        elseif system == 'transmission' or system == 'trans' then
+            components.transmission = Clamp100(value)
+            SyncComponents(vehicle, true)
+        elseif system == 'oil' then
+            components.oil = Clamp100(value)
+            SyncComponents(vehicle, true)
+        elseif system == 'fuel' or system == 'fuelsystem' then
+            components.fuelSystem = Clamp100(value)
+            SyncComponents(vehicle, true)
+        elseif system == 'temp' or system == 'temperature' then
+            components.temperature = math.max(0.0, math.min(value, Config.MaximumTemperature))
+            SyncComponents(vehicle, true)
+        else
+            Notify('Unknown system: ' .. system)
+            return
+        end
+
+        Notify(('Developer: %s set to %.0f%s'):format(
+            system,
+            value,
+            (system == 'temp' or system == 'temperature') and ' C' or '%'
+        ))
+    end, false)
+end
