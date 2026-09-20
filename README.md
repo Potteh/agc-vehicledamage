@@ -1,49 +1,38 @@
-# AGC Realistic Vehicle Damage - Phase 4
+# AGC Realistic Vehicle Damage - Phase 4.1
 
-Phase 4 builds component failures on the balanced Phase 3.3 collision model.
+Phase 4.1 fixes component damage not triggering during high-speed crashes.
 
-## Components
-- Radiator: frontal impacts can damage cooling capacity.
-- Temperature: warms while running; damaged radiators can cause overheating.
-- Engine: severe frontal impacts can now cause additional engine damage even when GTA
-  would otherwise leave native engine health near 100%.
-- Transmission: hard impacts can damage it and reduce delivered torque.
-- Oil system: severe impacts can damage it; critical oil condition causes continued
-  engine and Mechanical deterioration.
-- Fuel system: severe impacts can damage it; low condition leaks native fuel.
-- Tires: sufficiently severe impacts have a configurable chance to burst a tire.
+## Cause
+Phase 4 used the speed difference observed on the exact update where GTA's body-health
+change appeared. GTA can spread a collision across multiple frames. By the time body
+damage was observed, the sampled speed delta could be small even after a 70 MPH crash.
+As a result, Body changed while Radiator, Transmission, Oil and Fuel System stayed 100%.
 
-## Synchronization
-Mechanical condition and the component table are synchronized through vehicle state bags.
-The current driver is authoritative for live damage calculations.
+## Fix
+Component severity now uses the vehicle's recorded PRE-IMPACT speed when GTA confirms
+that physical body/engine damage occurred.
 
-## /vehstatus
-Now reports:
-Mechanical, Engine, Body, Radiator, Transmission, Oil, Fuel System, Temperature, Status.
+The collision model still requires native physical damage, so merely braking hard from
+70 MPH should not damage components.
 
-## Repair
-Existing QBCore `/fix` automatic repair compatibility is retained. An explicit repair via:
+## Expected behavior
+- ~20 MPH light frontal hit: little/no drivetrain damage; radiator may take a very small hit.
+- ~50 MPH frontal hit: radiator should begin showing noticeable damage; transmission may
+  take a small amount depending on the collision.
+- ~70 MPH head-on hit: radiator should take substantial damage, engine should take some
+  additional frontal-impact damage, and transmission may also deteriorate.
+- Oil/fuel systems remain biased toward more severe impacts.
+- Temperature normally settles around 90 C. A damaged radiator should make temperature
+  climb above normal while the engine continues running.
 
-    exports['agc-vehicledamage']:RepairVehicle(vehicle)
-
-also resets the Phase 4 components.
-
-## Important implementation note
-FiveM/GTA does not expose one simple, universally reliable collision-point native for
-every vehicle impact. Phase 4 therefore approximates frontal impact severity using the
-vehicle's motion and collision speed. This avoids hard-coding vehicle-model-specific
-bonnet/engine geometry.
+## Debugging
+Run `/vehdamagedebug` to enable console logging. Component collisions now print:
+pre-impact MPH, sampled speed delta, body loss, engine loss, and whether the impact was
+classified as front-biased.
 
 ## Install
-Replace the resource and run:
+Replace the resource folder and run:
 
     restart agc-vehicledamage
 
-## Suggested test sequence
-1. `/fix`, then `/vehstatus`.
-2. Light front impact.
-3. Moderate front impact.
-4. 60-75 MPH head-on impact.
-5. Continue driving a vehicle with a damaged radiator and watch temperature.
-6. Test repeated hard impacts for transmission/oil/fuel/tire failures.
-7. `/fix` and confirm all systems reset.
+Use `/fix` before each controlled crash test.

@@ -93,20 +93,20 @@ Config.DefaultComponents = {
 
 -- Front-impact approximation. GTA does not expose a simple reliable collision point,
 -- so frontal severity is estimated from impact velocity along the vehicle's forward axis.
-Config.FrontalImpactMinimumMPH = 22.0
-Config.FrontalImpactRadiatorFactor = 0.20
-Config.FrontalImpactEngineFactor = 0.10
+Config.FrontalImpactMinimumMPH = 18.0
+Config.FrontalImpactRadiatorFactor = 0.32
+Config.FrontalImpactEngineFactor = 0.13
 Config.MaxRadiatorDamagePerImpact = 28.0
 Config.MaxExtraEngineDamagePerImpact = 12.0
 
 -- General component impact damage
-Config.TransmissionImpactStartMPH = 38.0
-Config.TransmissionImpactFactor = 0.055
+Config.TransmissionImpactStartMPH = 42.0
+Config.TransmissionImpactFactor = 0.065
 Config.MaxTransmissionDamagePerImpact = 10.0
-Config.OilImpactStartMPH = 50.0
+Config.OilImpactStartMPH = 55.0
 Config.OilImpactFactor = 0.035
 Config.MaxOilDamagePerImpact = 7.0
-Config.FuelImpactStartMPH = 55.0
+Config.FuelImpactStartMPH = 60.0
 Config.FuelImpactFactor = 0.025
 Config.MaxFuelSystemDamagePerImpact = 6.0
 
@@ -140,7 +140,7 @@ Config.FuelLeakPerSecond = 0.20
 
 -- Tire damage
 Config.EnableImpactTyreDamage = true
-Config.TyreDamageMinimumMPH = 45.0
+Config.TyreDamageMinimumMPH = 50.0
 Config.TyreBurstChanceAtMinimum = 4
 Config.TyreBurstChanceAtExtreme = 28
 Config.TyreExtremeImpactMPH = 85.0

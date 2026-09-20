@@ -208,59 +208,92 @@ end
 
 local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLoss, engineLoss)
     local speedDelta = math.max(previousSpeed - currentSpeed, 0.0)
-    if speedDelta < 5.0 or (bodyLoss + engineLoss) < Config.MinimumNativeDamageForImpact then return end
+    local nativeLoss = bodyLoss + engineLoss
 
-    -- Estimate frontal impact from the vehicle's prior velocity direction relative
-    -- to its current forward vector. This is an approximation but differentiates
-    -- head-on/front impacts from many side/rear events without model-specific bones.
+    if previousSpeed < Config.MinimumCollisionSpeed or nativeLoss < Config.MinimumNativeDamageForImpact then
+        return
+    end
+
+    -- Phase 4.1 fix:
+    -- Component severity is based on PRE-IMPACT speed, not only the sampled speed
+    -- delta. GTA can report a collision across several frames, so the old model
+    -- frequently saw only a small delta by the time body damage appeared.
+    local impactSpeed = previousSpeed
+
     local forward = GetEntityForwardVector(vehicle)
     local vel = lastImpactVelocity
     local forwardVelocity = (vel.x * forward.x) + (vel.y * forward.y) + (vel.z * forward.z)
-    local forwardMPH = math.abs(forwardVelocity) * 2.236936
-    local likelyFrontImpact = forwardVelocity > 0.0 and speedDelta >= Config.FrontalImpactMinimumMPH
+    local movingForward = forwardVelocity > 0.5
+
+    -- A collision while the car is moving forward is treated as front-biased when
+    -- there is meaningful native body/engine damage. This is intentionally an
+    -- approximation because GTA does not expose a universal collision point.
+    local likelyFrontImpact =
+        movingForward and
+        impactSpeed >= Config.FrontalImpactMinimumMPH and
+        nativeLoss >= Config.MinimumNativeDamageForImpact
 
     if likelyFrontImpact then
+        local excessSpeed = math.max(impactSpeed - Config.FrontalImpactMinimumMPH, 0.0)
+
         local radiatorDamage = math.min(
-            (speedDelta - Config.FrontalImpactMinimumMPH) * Config.FrontalImpactRadiatorFactor +
-            bodyLoss * 0.025,
+            (excessSpeed * Config.FrontalImpactRadiatorFactor) +
+            (bodyLoss * 0.035) +
+            (engineLoss * 0.06),
             Config.MaxRadiatorDamagePerImpact
         )
-        components.radiator = Clamp100(components.radiator - math.max(radiatorDamage, 0.0))
+        components.radiator = Clamp100(components.radiator - radiatorDamage)
 
-        local extraEngine = math.min(
-            math.max(speedDelta - 35.0, 0.0) * Config.FrontalImpactEngineFactor +
-            math.max(bodyLoss - 80.0, 0.0) * 0.02,
-            Config.MaxExtraEngineDamagePerImpact
-        )
-        if extraEngine > 0.0 then
-            local nativeEngine = GetVehicleEngineHealth(vehicle)
-            SetVehicleEngineHealth(vehicle, math.max(nativeEngine - (extraEngine * 10.0), 0.0))
+        -- Extra engine damage starts becoming meaningful in higher-speed frontal hits.
+        if impactSpeed >= 40.0 then
+            local extraEngine = math.min(
+                ((impactSpeed - 40.0) * Config.FrontalImpactEngineFactor) +
+                (bodyLoss * 0.018),
+                Config.MaxExtraEngineDamagePerImpact
+            )
+            if extraEngine > 0.0 then
+                local nativeEngine = GetVehicleEngineHealth(vehicle)
+                SetVehicleEngineHealth(vehicle, math.max(nativeEngine - (extraEngine * 10.0), 0.0))
+            end
         end
     end
 
-    if speedDelta >= Config.TransmissionImpactStartMPH then
-        local d = math.min((speedDelta - Config.TransmissionImpactStartMPH) * Config.TransmissionImpactFactor,
-            Config.MaxTransmissionDamagePerImpact)
+    -- General drivetrain/component shock uses pre-impact speed plus evidence that
+    -- GTA actually registered physical damage.
+    if impactSpeed >= Config.TransmissionImpactStartMPH then
+        local d = math.min(
+            ((impactSpeed - Config.TransmissionImpactStartMPH) * Config.TransmissionImpactFactor) +
+            (nativeLoss * 0.008),
+            Config.MaxTransmissionDamagePerImpact
+        )
         components.transmission = Clamp100(components.transmission - d)
     end
 
-    if speedDelta >= Config.OilImpactStartMPH then
-        local d = math.min((speedDelta - Config.OilImpactStartMPH) * Config.OilImpactFactor,
-            Config.MaxOilDamagePerImpact)
+    if impactSpeed >= Config.OilImpactStartMPH then
+        local d = math.min(
+            ((impactSpeed - Config.OilImpactStartMPH) * Config.OilImpactFactor) +
+            (engineLoss * 0.012),
+            Config.MaxOilDamagePerImpact
+        )
         components.oil = Clamp100(components.oil - d)
     end
 
-    if speedDelta >= Config.FuelImpactStartMPH then
-        local d = math.min((speedDelta - Config.FuelImpactStartMPH) * Config.FuelImpactFactor,
-            Config.MaxFuelSystemDamagePerImpact)
+    if impactSpeed >= Config.FuelImpactStartMPH then
+        local d = math.min(
+            ((impactSpeed - Config.FuelImpactStartMPH) * Config.FuelImpactFactor) +
+            (bodyLoss * 0.004),
+            Config.MaxFuelSystemDamagePerImpact
+        )
         components.fuelSystem = Clamp100(components.fuelSystem - d)
     end
 
-    if Config.EnableImpactTyreDamage and speedDelta >= Config.TyreDamageMinimumMPH then
+    if Config.EnableImpactTyreDamage and impactSpeed >= Config.TyreDamageMinimumMPH then
         local span = math.max(Config.TyreExtremeImpactMPH - Config.TyreDamageMinimumMPH, 1.0)
-        local pct = math.min(math.max((speedDelta - Config.TyreDamageMinimumMPH) / span, 0.0), 1.0)
-        local chance = math.floor(Config.TyreBurstChanceAtMinimum +
-            ((Config.TyreBurstChanceAtExtreme - Config.TyreBurstChanceAtMinimum) * pct))
+        local pct = math.min(math.max((impactSpeed - Config.TyreDamageMinimumMPH) / span, 0.0), 1.0)
+        local chance = math.floor(
+            Config.TyreBurstChanceAtMinimum +
+            ((Config.TyreBurstChanceAtExtreme - Config.TyreBurstChanceAtMinimum) * pct)
+        )
         if math.random(1,100) <= chance then
             local tyres = {0,1,4,5}
             local tyre = tyres[math.random(1,#tyres)]
@@ -269,6 +302,10 @@ local function ApplyComponentImpact(vehicle, previousSpeed, currentSpeed, bodyLo
             end
         end
     end
+
+    Debug(('Component impact: %.1f MPH | delta %.1f | bodyLoss %.1f | engineLoss %.1f | front %s'):format(
+        impactSpeed, speedDelta, bodyLoss, engineLoss, tostring(likelyFrontImpact)
+    ))
 
     SyncComponents(vehicle, true)
 end
