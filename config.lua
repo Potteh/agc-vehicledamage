@@ -3,18 +3,31 @@ Config = {}
 Config.Debug = false
 Config.UpdateInterval = 100
 
--- Collision model
+-- Collision detection
 Config.MinimumCollisionSpeed = 8.0 -- MPH
-Config.CollisionDamageMultiplier = 1.0
-Config.SpeedDeltaMultiplier = 1.35
-Config.BodyDamageMultiplier = 0.15
-Config.EngineDamageMultiplier = 0.20
-Config.MaxDamagePerImpact = 45.0
 Config.CollisionCooldown = 650
+
+-- Phase 3.3 collision model:
+-- speed determines impact severity, but native body/engine loss determines how much
+-- actual mechanical damage occurred. This prevents a speed drop alone from destroying
+-- the drivetrain.
+Config.ImpactSpeedReference = 45.0
+Config.MaximumImpactSeverity = 1.50
+Config.BodyLossToMechanical = 0.08
+Config.EngineLossToMechanical = 0.35
+Config.MinimumNativeDamageForImpact = 2.0
+Config.MaxMechanicalDamagePerImpact = 18.0
+
+-- A genuinely violent impact may still cause a small amount of mechanical shock even
+-- if GTA reports mostly body damage, but this is deliberately capped.
+Config.EnableImpactShockDamage = true
+Config.ImpactShockStartMPH = 35.0
+Config.ImpactShockMultiplier = 0.035
+Config.MaxImpactShockDamage = 3.0
 
 -- Rollover
 Config.EnableRolloverDamage = true
-Config.RolloverDamagePerSecond = 2.5
+Config.RolloverDamagePerSecond = 1.25
 
 -- Mechanical condition / power loss
 Config.PowerLossStart = 65.0
@@ -23,7 +36,6 @@ Config.StallThreshold = 15.0
 Config.DisableThreshold = 0.0
 Config.MinimumTorqueMultiplier = 0.30
 
--- Keep GTA from exploding the engine before AGC can manage progressive failure.
 Config.ProtectEngineHealth = true
 Config.MinimumProtectedEngineHealth = 50.0
 
@@ -32,30 +44,21 @@ Config.StateBagKey = 'agcMechanicalCondition'
 Config.DefaultCondition = 100.0
 Config.SyncChangeThreshold = 0.10
 
--- Display conversion. GTA normally uses 1000 as full body/engine health.
+-- GTA health normalization
 Config.NativeFullHealth = 1000.0
 
--- Engine/body -> mechanical deterioration.
--- Damage to native engine/body health immediately contributes to mechanical wear.
-Config.EngineMechanicalDamageFactor = 0.035
-Config.BodyMechanicalDamageFactor = 0.015
-
--- Phase 3.1 condition floor/ceiling relationship.
--- Mechanical cannot remain pristine while the engine/body are badly damaged.
--- Engine condition has the strongest effect; body condition has a softer effect.
+-- Current-condition ceiling.
 Config.EnableMechanicalConditionCeiling = true
 Config.EngineConditionInfluence = 0.70
-Config.BodyConditionInfluence = 0.40
-Config.MinimumBodyPenaltyThreshold = 90.0
+Config.BodyConditionInfluence = 0.20
+Config.MinimumBodyPenaltyThreshold = 80.0
 Config.MinimumEnginePenaltyThreshold = 98.0
 
--- Ongoing degradation when a major system is critically damaged.
+-- Critical degradation
 Config.CriticalEnginePercent = 25.0
 Config.CriticalBodyPercent = 20.0
-Config.CriticalEngineMechanicalLossPerSecond = 1.00
-Config.CriticalBodyMechanicalLossPerSecond = 0.60
-
--- Catastrophic failure.
+Config.CriticalEngineMechanicalLossPerSecond = 0.75
+Config.CriticalBodyMechanicalLossPerSecond = 0.35
 Config.EngineFailurePercent = 0.0
 Config.BodyFailurePercent = 0.0
 Config.CatastrophicMechanicalLossPerSecond = 15.0

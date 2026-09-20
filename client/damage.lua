@@ -24,31 +24,41 @@ end
 
 function AGCDamage.CalculateImpact(vehicle, previousSpeed, currentSpeed, previousBody, currentBody, previousEngine, currentEngine)
     local speedDelta = math.max(previousSpeed - currentSpeed, 0.0)
-    local bodyDelta = math.max(previousBody - currentBody, 0.0)
-    local engineDelta = math.max(previousEngine - currentEngine, 0.0)
+    local bodyLoss = math.max(previousBody - currentBody, 0.0)
+    local engineLoss = math.max(previousEngine - currentEngine, 0.0)
+    local nativeLoss = bodyLoss + engineLoss
 
     if previousSpeed < Config.MinimumCollisionSpeed then return 0.0 end
-    if speedDelta < 3.0 and bodyDelta < 5.0 and engineDelta < 5.0 then return 0.0 end
+    if nativeLoss < Config.MinimumNativeDamageForImpact then return 0.0 end
+
+    -- Severity scales the damage GTA actually recorded. Speed no longer becomes
+    -- mechanical damage by itself.
+    local severity = math.min(
+        math.max(previousSpeed / math.max(Config.ImpactSpeedReference, 1.0), 0.25),
+        Config.MaximumImpactSeverity
+    )
 
     local durability = math.max(AGCDamage.GetDurability(vehicle), 0.1)
-    local speedDamage = math.pow(speedDelta, 1.18) * Config.SpeedDeltaMultiplier
-    local gtaDamage = (bodyDelta * Config.BodyDamageMultiplier) + (engineDelta * Config.EngineDamageMultiplier)
+    local damage = (
+        (bodyLoss * Config.BodyLossToMechanical) +
+        (engineLoss * Config.EngineLossToMechanical)
+    ) * severity / durability
 
-    return math.max(0.0, math.min(
-        ((speedDamage + gtaDamage) * Config.CollisionDamageMultiplier) / durability,
-        Config.MaxDamagePerImpact
-    ))
+    if Config.EnableImpactShockDamage and speedDelta >= Config.ImpactShockStartMPH then
+        local shock = (speedDelta - Config.ImpactShockStartMPH) * Config.ImpactShockMultiplier
+        damage = damage + math.min(shock, Config.MaxImpactShockDamage)
+    end
+
+    return math.max(0.0, math.min(damage, Config.MaxMechanicalDamagePerImpact))
 end
 
 function AGCDamage.GetTorqueMultiplier(condition)
     condition = AGCDamage.ClampCondition(condition)
-
     if condition >= Config.PowerLossStart then return 1.0 end
 
     if condition >= Config.SeverePowerLossStart then
         local range = Config.PowerLossStart - Config.SeverePowerLossStart
-        if range <= 0.0 then return 0.65 end
-        local percent = (condition - Config.SeverePowerLossStart) / range
+        local percent = range > 0.0 and ((condition - Config.SeverePowerLossStart) / range) or 0.0
         return 0.65 + (0.35 * percent)
     end
 

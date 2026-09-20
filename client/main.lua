@@ -128,19 +128,6 @@ local function ApplyMechanicalDamage(amount)
     end
 end
 
-local function ApplySystemDamageToMechanical(currentBody, currentEngine)
-    local bodyLoss = math.max(previousBodyHealth - currentBody, 0.0)
-    local engineLoss = math.max(previousEngineHealth - currentEngine, 0.0)
-
-    local wear =
-        (bodyLoss * Config.BodyMechanicalDamageFactor) +
-        (engineLoss * Config.EngineMechanicalDamageFactor)
-
-    if wear > 0.0 then
-        ApplyMechanicalDamage(wear)
-    end
-end
-
 local function ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
     if not Config.EnableMechanicalConditionCeiling then return end
 
@@ -288,7 +275,6 @@ CreateThread(function()
             local repaired = DetectFullRepair(vehicle, currentBodyHealth, currentEngineHealth, currentTankHealth)
 
             if not repaired then
-                ApplySystemDamageToMechanical(currentBodyHealth, currentEngineHealth)
                 ApplyMechanicalConditionCeiling(bodyPercent, enginePercent)
 
                 if HasEntityCollidedWithAnything(vehicle)
